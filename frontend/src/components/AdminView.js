@@ -1,4 +1,3 @@
-// src/components/AdminView.js
 import React, { useState, useEffect, useCallback, useContext } from 'react';
 import api from '../services/api';
 import { AuthContext } from '../context/AuthContext';
@@ -25,15 +24,15 @@ const availableReportColumns = {
 };
 
 function AdminView() {
-  const { user: authUser } = useContext(AuthContext); // Renamed to avoid conflict with component-level 'user' variable if any
+  const { user: authUser } = useContext(AuthContext);
   const [events, setEvents] = useState([]);
   const [newEventName, setNewEventName] = useState('');
   const [newCourse, setNewCourse] = useState({...initialNewCourseState, slots: [{...initialNewCourseState.slots[0], id: 1}]});
   const [newStudent, setNewStudent] = useState({...initialNewStudentState});
   
-  const [uiMessages, setUiMessages] = useState({ error: '', success: '' });
+  const [uiMessages, setUiMessages] = useState({ error: '', success: '', info: '' });
   const [loadingStates, setLoadingStates] = useState({
-    initialData: true, // Combined loading state for initial fetches
+    initialData: true,
     creatingEvent: false,
     addingCourse: false,
     togglingEvent: null,
@@ -41,11 +40,12 @@ function AdminView() {
     uploadingCsv: false,
     downloadingCustomDetailedReport: false, 
     fetchingEventEnrollmentStatus: false,
+    isFetchingLogs: false,
+    isDownloadingLogs: false,
   });
 
   const [selectedEventIdForCourse, setSelectedEventIdForCourse] = useState('');
   const [csvFile, setCsvFile] = useState(null);
-
   const [distinctDepartments, setDistinctDepartments] = useState(['all']); 
 
   const [selectedScopeType, setSelectedScopeType] = useState('department');
@@ -53,76 +53,85 @@ function AdminView() {
   const [selectedEventForReport, setSelectedEventForReport] = useState('');
   const [selectedCourseForReport, setSelectedCourseForReport] = useState('');
   const [coursesInSelectedEvent, setCoursesInSelectedEvent] = useState([]);
-
   const [selectedColumns, setSelectedColumns] = useState(
     Object.entries(availableReportColumns).reduce((acc, [key, val]) => {
         acc[key] = val.defaultChecked;
         return acc;
     }, {})
   );
-
+  
   const [selectedEventForStatusTable, setSelectedEventForStatusTable] = useState(''); 
   const [eventStatusByDeptData, setEventStatusByDeptData] = useState(null); 
 
+  const [activityLogs, setActivityLogs] = useState([]);
+  const [logFilters, setLogFilters] = useState({ username: '', action: '' });
+  const [logPagination, setLogPagination] = useState({ currentPage: 1, totalPages: 1, totalLogs: 0 });
 
   const setTimedMessage = (type, message, duration = 7000) => {
-    setUiMessages({ error: '', success: '', [type]: message });
+    setUiMessages({ error: '', success: '', info: '', [type]: message });
     setTimeout(() => setUiMessages(prev => ({ ...prev, [type]: '' })), duration);
   };
 
   const fetchAdminData = useCallback(async () => {
     setLoadingStates(prev => ({ ...prev, initialData: true }));
-    let fetchedEventsData = [];
-    let fetchedDistinctDepts = ['all', 'N/A']; // Default with N/A
     try {
-      const eventsPromise = api.get('events');
-      // Assuming /enrollment-summary/by-department still returns distinctDepartments.
-      // If not, replace with a dedicated endpoint like 'users/distinct-departments'.
-      const deptsPromise = api.get('events/enrollment-summary/by-department'); 
+        const eventsPromise = api.get('events');
+        const deptsPromise = api.get('events/enrollment-summary/by-department');
+        const [eventsResponse, deptsResponse] = await Promise.all([
+            eventsPromise,
+            deptsPromise.catch(err => { console.warn("Failed to fetch distinct departments for dropdown.", err.message); return null; })
+        ]);
 
-      const [eventsResponse, deptsResponse] = await Promise.all([
-          eventsPromise,
-          deptsPromise.catch(err => { // Allow depts call to fail without breaking event fetch
-              console.warn("Failed to fetch distinct departments, using fallback.", err.message);
-              return null; // So Promise.all doesn't reject immediately
-          })
-      ]);
+        if (eventsResponse.data.success) { setEvents(eventsResponse.data.data || []); }
+        else { setTimedMessage('error', eventsResponse.data.error || 'Failed to load events.'); }
 
-      if (eventsResponse.data.success && Array.isArray(eventsResponse.data.data)) {
-        fetchedEventsData = eventsResponse.data.data;
-        setEvents(fetchedEventsData);
-      } else {
-        setTimedMessage('error', eventsResponse.data.error || 'Failed to load events.');
-        setEvents([]);
-      }
-      
-      if (deptsResponse && deptsResponse.data.success && Array.isArray(deptsResponse.data.data.distinctDepartments)) {
-          fetchedDistinctDepts = ['all', ...deptsResponse.data.data.distinctDepartments];
-          fetchedDistinctDepts = [...new Set(fetchedDistinctDepts)]; // Remove duplicates
-          fetchedDistinctDepts.sort((a, b) => {
-              if (a === 'all') return -1; if (b === 'all') return 1;
-              if (a === 'N/A') return 1; if (b === 'N/A') return -1;
-              return String(a).localeCompare(String(b));
-          });
-      }
-      setDistinctDepartments(fetchedDistinctDepts);
-      if (selectedScopeType === 'department' && !fetchedDistinctDepts.includes(selectedDepartmentForDownload)) {
-          setSelectedDepartmentForDownload('all'); 
-      }
-
-    } catch (err) { // Catch errors from eventsPromise if deptsPromise was handled
-      setTimedMessage('error', `Failed to load initial admin data: ${err.response?.data?.error || err.message}`);
-      console.error('Fetch admin data error:', err);
-      setEvents([]);
-      setDistinctDepartments(['all', 'N/A']);
+        if (deptsResponse?.data?.success) {
+            let depts = ['all', ...(deptsResponse.data.data.distinctDepartments || [])];
+            depts = [...new Set(depts)];
+            depts.sort((a,b) => {
+                if (a === 'all') return -1; if(b==='all') return 1; if(a==='N/A') return 1; if(b==='N/A') return -1;
+                return String(a).localeCompare(b);
+            });
+            setDistinctDepartments(depts);
+        } else { setDistinctDepartments(['all', 'N/A']); }
+    } catch (err) {
+        setTimedMessage('error', `Failed to load admin data: ${err.response?.data?.error || err.message}`);
     } finally {
-      setLoadingStates(prev => ({ ...prev, initialData: false }));
+        setLoadingStates(prev => ({ ...prev, initialData: false }));
     }
-  }, []); // Removed dependencies, this should run once on mount. Re-add if specific state changes should trigger full reload.
+  }, []);
+
+  const fetchActivityLogs = useCallback(async (page = 1) => {
+    setLoadingStates(prev => ({ ...prev, isFetchingLogs: true }));
+    try {
+        const params = new URLSearchParams({ page, limit: 15 });
+        if (logFilters.username) params.append('username', logFilters.username);
+        if (logFilters.action) params.append('action', logFilters.action);
+
+        const response = await api.get(`events/activity-logs?${params.toString()}`);
+
+        if (response.data.success) {
+            const { logs, ...pagination } = response.data.data;
+            setActivityLogs(logs);
+            setLogPagination(pagination);
+        } else {
+            setTimedMessage('error', response.data.error || 'Failed to fetch activity logs.');
+        }
+    } catch (err) {
+        setTimedMessage('error', err.error || 'Could not fetch activity logs.');
+    } finally {
+        setLoadingStates(prev => ({ ...prev, isFetchingLogs: false }));
+    }
+  }, [logFilters]);
 
   useEffect(() => {
     fetchAdminData();
-  }, [fetchAdminData]); // fetchAdminData is memoized, so this effect runs once.
+    fetchActivityLogs();
+  }, [fetchAdminData]); // fetchActivityLogs is memoized and only depends on logFilters
+
+  useEffect(() => {
+    fetchActivityLogs(logPagination.currentPage);
+  }, [logPagination.currentPage]);
 
   useEffect(() => { 
       if ((selectedScopeType === 'course' || selectedScopeType === 'event') && selectedEventForReport) {
@@ -138,7 +147,6 @@ function AdminView() {
   useEffect(() => { 
       setEventStatusByDeptData(null); 
   }, [selectedEventForStatusTable]);
-
 
   const handleCreateEvent = async (e) => {
     e.preventDefault();
@@ -193,7 +201,7 @@ function AdminView() {
     try {
       const response = await api.post('events/add-student', newStudent);
       if (response.data.success) {
-        setNewStudent({...initialNewStudentState}); fetchAdminData(); // Refresh to update distinct departments if new one added
+        setNewStudent({...initialNewStudentState}); fetchAdminData();
         setTimedMessage('success', `Student "${response.data.data.username}" added.`);
       } else { setTimedMessage('error', `Failed to add student: ${response.data.error || 'Unknown error.'}`);}
     } catch (err) { setTimedMessage('error', `Failed to add student: ${err.response?.data?.error || err.message}`);
@@ -207,19 +215,19 @@ function AdminView() {
     const formData = new FormData(); formData.append('csv', csvFile);
     try {
       const response = await api.post('events/upload-students', formData, { headers: { 'Content-Type': 'multipart/form-data' }});
-      if (response.data.success || response.status === 207) { // Handle partial success from backend
+      if (response.data.success || response.status === 207) {
         setCsvFile(null); const fileInput = document.getElementById('csv-upload-input'); if (fileInput) fileInput.value = '';
         let message = response.data.message || 'CSV processed.';
         let messageType = 'success';
         if (response.data.errors && response.data.errors.length > 0) {
             message += ` ${response.data.errors.length} row(s) had errors. Check console.`;
             console.warn("CSV Upload partial errors/failures:", response.data.errors);
-            if (response.data.createdCount === 0 && response.status !== 207) messageType = 'error'; // If all failed
-            else if (response.data.createdCount > 0) messageType = 'success'; // Partial success
-            else messageType = 'error'; // If status 207 but no createdCount, assume error
+            if (response.data.createdCount === 0 && response.status !== 207) messageType = 'error';
+            else if (response.data.createdCount > 0) messageType = 'success';
+            else messageType = 'error';
         }
         setTimedMessage(messageType, message);
-        fetchAdminData(); // Refresh to update distinct departments
+        fetchAdminData();
       } else { setTimedMessage('error', `CSV upload failed: ${response.data.error || response.data.message || 'Unknown server error.'}`);}
     } catch (err) {
       let errorMsg = 'CSV upload failed.';
@@ -239,7 +247,6 @@ function AdminView() {
   const handleDownloadCustomDetailedReport = async () => {
     let reportScopePayload = {};
     let scopeDescription = "";
-
     if (selectedScopeType === 'department') {
         if (!selectedDepartmentForDownload) { setTimedMessage('error', 'Please select a department.'); return; }
         reportScopePayload = { type: 'department', value: selectedDepartmentForDownload };
@@ -260,13 +267,12 @@ function AdminView() {
     const activeColumns = Object.entries(selectedColumns).filter(([, value]) => value).map(([key]) => key);
     if (activeColumns.length === 0) { setTimedMessage('error', 'Please select at least one column.'); return; }
 
-    console.log("Downloading Custom Report. Scope:", reportScopePayload, "Columns:", activeColumns);
     setLoadingStates(prev => ({ ...prev, downloadingCustomDetailedReport: true }));
     try {
         const endpoint = `events/download/custom-detailed`; 
         const response = await api.post(endpoint, { scope: reportScopePayload, columns: activeColumns }, { responseType: 'blob' });
         const blob = response.data;
-        if (!(blob instanceof Blob)) { throw new Error('Response was not a Blob.'); } // More robust check
+        if (!(blob instanceof Blob)) { throw new Error('Response was not a Blob.'); }
         const url = window.URL.createObjectURL(blob);
         const link = document.createElement('a');
         link.href = url;
@@ -288,7 +294,7 @@ function AdminView() {
             } catch (parseError) { finalErrorMessage += `Could not parse error. ${err.message || ''}`; }
         } else if (err.response && err.response.data) { finalErrorMessage += err.response.data.error || err.response.data.message || 'Server error.'; console.error("Server JSON error:", err.response.data);
         } else { finalErrorMessage += err.message || 'Could not process download.'; }
-        setTimedMessage('error', finalErrorMessage); console.error(`Custom report download error object:`, err.response || err);
+        setTimedMessage('error', finalErrorMessage);
     } finally { setLoadingStates(prev => ({ ...prev, downloadingCustomDetailedReport: false })); }
   };
 
@@ -301,21 +307,72 @@ function AdminView() {
     setEventStatusByDeptData(null); 
 
     try {
+      // NOTE: Your backend might have a different route name here
       const url = `events/${selectedEventForStatusTable}/enrollment-status-by-department`;
       const response = await api.get(url);
       if (response.data.success) {
         setEventStatusByDeptData(response.data.data);
         if(response.data.data.message && (!response.data.data.departmentalStatus || response.data.data.departmentalStatus.length === 0)){ 
-            setTimedMessage('info', response.data.data.message); // Use 'info' for neutral messages
+            setTimedMessage('info', response.data.data.message);
         }
       } else {
         setTimedMessage('error', response.data.error || 'Failed to load event enrollment status.');
       }
     } catch (err) {
       setTimedMessage('error', `Error fetching status by department: ${err.response?.data?.error || err.message}`);
-      console.error("Fetch event status by department error:", err.response || err);
     } finally {
       setLoadingStates(prev => ({ ...prev, fetchingEventEnrollmentStatus: false }));
+    }
+  };
+
+  const handleLogFilterChange = (e) => {
+    const { name, value } = e.target;
+    setLogFilters(prev => ({ ...prev, [name]: value }));
+  };
+
+  const handleApplyLogFilters = () => {
+    if (logPagination.currentPage !== 1) {
+        setLogPagination(prev => ({ ...prev, currentPage: 1 }));
+    } else {
+        fetchActivityLogs(1); // Manually trigger fetch if already on page 1
+    }
+  };
+  
+  const handleLogPageChange = (newPage) => {
+    if (newPage > 0 && newPage <= logPagination.totalPages && newPage !== logPagination.currentPage) {
+        setLogPagination(prev => ({ ...prev, currentPage: newPage }));
+    }
+  };
+
+  const handleDownloadLogs = async () => {
+    setLoadingStates(prev => ({ ...prev, isDownloadingLogs: true }));
+    try {
+        const params = new URLSearchParams();
+        if (logFilters.username) params.append('username', logFilters.username);
+        if (logFilters.action) params.append('action', logFilters.action);
+        const endpoint = `events/activity-logs/download?${params.toString()}`;
+        const response = await api.get(endpoint, { responseType: 'blob' });
+        const blob = response.data;
+        if (!(blob instanceof Blob)) throw new Error("Response was not a file.");
+        const url = window.URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        const contentDisposition = response.headers['content-disposition'];
+        let fileName = 'activity_logs.csv';
+        if (contentDisposition) {
+            const fileNameMatch = contentDisposition.match(/filename="?([^"]+)"?/i);
+            if (fileNameMatch && fileNameMatch.length > 1) fileName = fileNameMatch[1];
+        }
+        link.setAttribute('download', fileName);
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        window.URL.revokeObjectURL(url);
+        setTimedMessage('success', 'Activity log download started.');
+    } catch (err) {
+        setTimedMessage('error', err.error || 'Could not download activity logs.');
+    } finally {
+        setLoadingStates(prev => ({ ...prev, isDownloadingLogs: false }));
     }
   };
 
@@ -337,7 +394,7 @@ function AdminView() {
   };
   const handleNewStudentChange = (e) => { const { name, value } = e.target; setNewStudent(prev => ({ ...prev, [name]: value })); };
 
-  if (loadingStates.initialData) { // Use the combined initial loading state
+  if (loadingStates.initialData) {
     return <div className="p-6 text-center text-lg">Loading admin dashboard...</div>;
   }
 
@@ -348,7 +405,6 @@ function AdminView() {
       {uiMessages.error && <p className="p-3 my-4 bg-red-100 border border-red-400 text-red-700 rounded-md text-center shadow" role="alert">{uiMessages.error}</p>}
       {uiMessages.success && <p className="p-3 my-4 bg-green-100 border border-green-400 text-green-700 rounded-md text-center shadow" role="status">{uiMessages.success}</p>}
       {uiMessages.info && <p className="p-3 my-4 bg-blue-100 border border-blue-400 text-blue-700 rounded-md text-center shadow" role="status">{uiMessages.info}</p>}
-
 
       {/* Create New Event Section */}
       <section className="p-6 bg-white rounded-xl shadow-lg">
@@ -588,7 +644,6 @@ function AdminView() {
         </div>
       </section>
 
-      {/* NEW SECTION: Event Enrollment Status by Department Table */}
       <section className="p-6 bg-white rounded-xl shadow-lg">
         <h2 className="text-2xl font-semibold mb-4 text-gray-700 border-b pb-2">Event Enrollment Status by Department</h2>
         <div className="sm:flex sm:space-x-4 mb-4 items-end">
@@ -597,10 +652,7 @@ function AdminView() {
             <select 
               id="eventStatusTableSelect"
               value={selectedEventForStatusTable} 
-              onChange={(e) => {
-                console.log("Event selected for status table:", e.target.value);
-                setSelectedEventForStatusTable(e.target.value);
-              }}
+              onChange={(e) => setSelectedEventForStatusTable(e.target.value)}
               className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
             >
               <option value="">-- Select Event --</option>
@@ -659,6 +711,114 @@ function AdminView() {
           </div>
         )}
       </section>
+
+     {/* --- NEW SECTION: Activity Log Viewer --- */}
+<section className="p-6 bg-white rounded-xl shadow-lg">
+  <h2 className="text-2xl font-semibold mb-4 text-gray-700 border-b pb-2">User Activity Logs</h2>
+  
+  <div className="p-4 mb-4 bg-gray-50 rounded-lg border flex flex-col sm:flex-row gap-4 items-center flex-wrap">
+      <div className="flex-grow w-full sm:w-auto">
+          <label htmlFor="logFilterUsername" className="text-sm font-medium text-gray-700">Filter by Username</label>
+          <input
+              id="logFilterUsername" type="text" name="username" value={logFilters.username}
+              onChange={handleLogFilterChange} placeholder="e.g., jsmith"
+              className="mt-1 w-full p-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          />
+      </div>
+      <div className="flex-grow w-full sm:w-auto">
+          <label htmlFor="logFilterAction" className="text-sm font-medium text-gray-700">Filter by Action</label>
+          <select
+              id="logFilterAction" name="action" value={logFilters.action} onChange={handleLogFilterChange}
+              className="mt-1 w-full p-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          >
+              <option value="">All Actions</option>
+              <option value="LOGIN_SUCCESS">Login Success</option>
+              <option value="ENROLL_SUCCESS">Enroll Success</option>
+              <option value="ENROLL_FAIL">Enroll Fail</option>
+          </select>
+      </div>
+      <div className="flex-shrink-0 pt-6 flex space-x-2">
+           <button onClick={handleApplyLogFilters} className="p-2 h-10 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50" disabled={loadingStates.isFetchingLogs}>
+              {loadingStates.isFetchingLogs ? 'Searching...' : 'Search'}
+          </button>
+          <button onClick={handleDownloadLogs} className="p-2 h-10 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50" disabled={loadingStates.isDownloadingLogs}>
+              {loadingStates.isDownloadingLogs ? '...' : 'Download CSV'}
+          </button>
+      </div>
+  </div>
+
+  <div className="overflow-x-auto">
+    <table className="min-w-full divide-y divide-gray-200">
+      <thead className="bg-gray-50">
+        <tr>
+          <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Timestamp</th>
+          <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Action</th>
+          <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">User</th>
+          <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Details</th>
+        </tr>
+      </thead>
+      <tbody className="bg-white divide-y divide-gray-200">
+        {loadingStates.isFetchingLogs ? (
+            <tr><td colSpan="4" className="text-center p-4 animate-pulse">Loading logs...</td></tr>
+        ) : activityLogs.length === 0 ? (
+            <tr><td colSpan="4" className="text-center p-4 text-gray-500">No logs found for the current filter.</td></tr>
+        ) : (
+          activityLogs.map(log => (
+            <tr key={log._id} className="hover:bg-gray-50">
+              <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-500">{new Date(log.createdAt).toLocaleString()}</td>
+              <td className="px-4 py-4 whitespace-nowrap">
+                  <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                      log.action.includes('SUCCESS') ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                  }`}>
+                      {log.action}
+                  </span>
+              </td>
+              <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-900">
+                  <div>{log.user?.name || log.username}</div>
+                  <div className="text-xs text-gray-500">{log.user?.department || 'N/A'}</div>
+              </td>
+              {/* ======================= THE FIX IS HERE ======================= */}
+              <td className="px-4 py-4 whitespace-normal text-sm text-gray-500">
+                {/* Always check if log.details exists before trying to access its properties */}
+                {log.details && (
+                  <>
+                    {log.details.ip && <div>IP: {log.details.ip}</div>}
+                    {log.details.eventName && <div>Event: {log.details.eventName}</div>}
+                    {log.details.courseTitle && <div>Course: {log.details.courseTitle}</div>}
+                    {log.details.errorMessage && <div className="text-red-600">Error: {log.details.errorMessage}</div>}
+                  </>
+                )}
+              </td>
+              {/* ===================== END OF THE FIX ====================== */}
+            </tr>
+          ))
+        )}
+      </tbody>
+    </table>
+  </div>
+  
+  <div className="mt-4 flex items-center justify-between">
+      <p className="text-sm text-gray-700">
+          Page {logPagination.currentPage} of {logPagination.totalPages} ({logPagination.totalLogs} total logs)
+      </p>
+      <div className="space-x-2">
+          <button 
+              onClick={() => handleLogPageChange(logPagination.currentPage - 1)}
+              disabled={logPagination.currentPage <= 1 || loadingStates.isFetchingLogs}
+              className="p-2 border rounded-md text-sm disabled:opacity-50"
+          >
+              Previous
+          </button>
+          <button 
+              onClick={() => handleLogPageChange(logPagination.currentPage + 1)}
+              disabled={logPagination.currentPage >= logPagination.totalPages || loadingStates.isFetchingLogs}
+              className="p-2 border rounded-md text-sm disabled:opacity-50"
+          >
+              Next
+          </button>
+      </div>
+  </div>
+</section>
     </div>
   );
 }

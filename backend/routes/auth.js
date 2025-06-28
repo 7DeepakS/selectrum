@@ -1,7 +1,7 @@
-// backend/routes/auth.js
 const express = require('express');
 const router = express.Router();
 const User = require('../models/User');
+const ActivityLog = require('../models/ActivityLog'); // <-- 1. IMPORT THE NEW MODEL
 const jwt = require('jsonwebtoken');
 
 const JWT_SECRET = process.env.JWT_SECRET;
@@ -15,7 +15,7 @@ const sendErrorResponse = (res, statusCode, message) => {
   res.status(statusCode).json({ success: false, error: message });
 };
 
-// POST /api/auth/register
+// POST /api/auth/register (No changes made here)
 router.post('/register', async (req, res) => {
   console.log('REGISTER: Request received for /api/auth/register');
   try {
@@ -61,7 +61,7 @@ router.post('/register', async (req, res) => {
       name: user.name,
       role: user.role,
       department: user.department,
-      requiresPasswordChange: user.requiresPasswordChange, // Include for consistency, though it'll be true
+      requiresPasswordChange: user.requiresPasswordChange,
     };
 
     res.status(201).json({
@@ -81,39 +81,43 @@ router.post('/register', async (req, res) => {
   }
 });
 
-// POST /api/auth/login
+// POST /api/auth/login (Enhanced with logging)
 router.post('/login', async (req, res) => {
-  console.log('LOGIN: Request received for /api/auth/login');
   try {
     const { username, password } = req.body;
-    console.log(`LOGIN: Attempting login for username: ${username}`);
 
     if (!username || !password) {
-      console.log('LOGIN: Username or password missing');
       return sendErrorResponse(res, 400, 'Username and password are required.');
     }
 
-    console.log('LOGIN: Searching for user...');
-    // Fetch user, including the requiresPasswordChange field directly
     const user = await User.findOne({ username: username.toLowerCase() }).select('+password');
-    console.log('LOGIN: User.findOne completed.');
 
-    if (!user) {
-      console.log(`LOGIN: User not found for username: ${username.toLowerCase()}`);
-      return sendErrorResponse(res, 401, 'Invalid credentials (user not found).');
-    }
-    console.log(`LOGIN: User found: ${user.username}, ID: ${user._id}`);
-
-    console.log('LOGIN: Comparing password...');
-    const isMatch = await user.comparePassword(password);
-    console.log(`LOGIN: Password comparison result for ${username}: ${isMatch}`);
-
-    if (!isMatch) {
-      console.log(`LOGIN: Password does not match for ${username}`);
-      return sendErrorResponse(res, 401, 'Invalid credentials (password mismatch).');
+    // Consolidated check for user not found OR password mismatch
+    if (!user || !(await user.comparePassword(password))) {
+      // We don't log failed attempts here as per your request to keep it simple,
+      // but this is where failed login logging would go.
+      return sendErrorResponse(res, 401, 'Invalid credentials.');
     }
 
-    console.log('LOGIN: Password matched. Generating token...');
+    // --- Login Successful ---
+
+    // 2. CREATE AND SAVE THE LOG ENTRY
+    try {
+      const logEntry = new ActivityLog({
+        user: user._id,
+        username: user.username,
+        action: 'LOGIN_SUCCESS',
+        details: {
+          ip: req.ip, // Express automatically provides the client IP address
+        }
+      });
+      await logEntry.save();
+    } catch (logError) {
+      // If logging fails for any reason, we don't want to fail the entire login process.
+      // We just log the error to the server console.
+      console.error('Failed to save login activity log:', logError);
+    }
+
     const payload = {
       user: {
         id: user._id,
@@ -123,16 +127,14 @@ router.post('/login', async (req, res) => {
     };
 
     const token = jwt.sign(payload, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
-    console.log('LOGIN: Token generated.');
 
-    // Prepare user object for response
     const userResponse = {
       _id: user._id,
       username: user.username,
       name: user.name,
       role: user.role,
       department: user.department,
-      requiresPasswordChange: user.requiresPasswordChange, // <--- INCLUDE THE FLAG
+      requiresPasswordChange: user.requiresPasswordChange,
     };
 
     res.json({
@@ -140,13 +142,9 @@ router.post('/login', async (req, res) => {
       token,
       user: userResponse
     });
-    console.log(`LOGIN: Login successful for ${user.username}. requiresPasswordChange: ${user.requiresPasswordChange}. Response sent.`);
 
   } catch (err) {
     console.error('LOGIN: CRITICAL ERROR in /login route:', err);
-    console.error('LOGIN: Error Name:', err.name);
-    console.error('LOGIN: Error Message:', err.message);
-    console.error('LOGIN: Error Stack:', err.stack);
     sendErrorResponse(res, 500, 'Server error during login.');
   }
 });
