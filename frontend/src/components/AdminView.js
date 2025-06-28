@@ -414,7 +414,7 @@ function AdminView() {
             <label htmlFor="newEventName" className="block text-sm font-medium text-gray-700 mb-1">Event Name</label>
             <input
               id="newEventName" type="text" value={newEventName} onChange={handleNewEventChange}
-              placeholder="e.g., Fall 2024 Registration"
+              placeholder=""
               className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500" required
             />
           </div>
@@ -439,13 +439,13 @@ function AdminView() {
           <div>
             <label htmlFor="courseTitle" className="block text-sm font-medium text-gray-700 mb-1">Course Title</label>
             <input id="courseTitle" type="text" name="title" value={newCourse.title} onChange={handleNewCourseChange}
-              placeholder="e.g., Introduction to Programming" required
+              placeholder="" required
               className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500" />
           </div>
           <div>
             <label htmlFor="courseDescription" className="block text-sm font-medium text-gray-700 mb-1">Course Description</label>
             <textarea id="courseDescription" name="description" value={newCourse.description} onChange={handleNewCourseChange}
-              placeholder="A brief description..." rows="3"
+              placeholder="" rows="3"
               className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500" />
           </div>
           <fieldset className="border p-4 rounded-lg bg-gray-50">
@@ -520,19 +520,19 @@ function AdminView() {
         <form onSubmit={handleAddStudent} className="space-y-4">
           <div>
             <label htmlFor="newStudentUsername" className="block text-sm font-medium text-gray-700 mb-1">Username</label>
-            <input id="newStudentUsername" type="text" name="username" value={newStudent.username} onChange={handleNewStudentChange} placeholder="e.g., jdoe" required className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+            <input id="newStudentUsername" type="text" name="username" value={newStudent.username} onChange={handleNewStudentChange} placeholder="" required className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500" />
           </div>
           <div>
             <label htmlFor="newStudentName" className="block text-sm font-medium text-gray-700 mb-1">Full Name</label>
-            <input id="newStudentName" type="text" name="name" value={newStudent.name} onChange={handleNewStudentChange} placeholder="e.g., John Doe" required className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+            <input id="newStudentName" type="text" name="name" value={newStudent.name} onChange={handleNewStudentChange} placeholder="" required className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500" />
           </div>
           <div>
             <label htmlFor="newStudentPassword" className="block text-sm font-medium text-gray-700 mb-1">Password</label>
-            <input id="newStudentPassword" type="password" name="password" value={newStudent.password} onChange={handleNewStudentChange} placeholder="Min. 6 characters" required className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+            <input id="newStudentPassword" type="password" name="password" value={newStudent.password} onChange={handleNewStudentChange} placeholder="" required className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500" />
           </div>
           <div>
             <label htmlFor="newStudentDepartment" className="block text-sm font-medium text-gray-700 mb-1">Department (Optional)</label>
-            <input id="newStudentDepartment" type="text" name="department" value={newStudent.department} onChange={handleNewStudentChange} placeholder="e.g., Computer Science" className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+            <input id="newStudentDepartment" type="text" name="department" value={newStudent.department} onChange={handleNewStudentChange} placeholder="" className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500" />
           </div>
           <button type="submit" className="w-full p-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition disabled:opacity-50"
             disabled={loadingStates.addingStudent}>
