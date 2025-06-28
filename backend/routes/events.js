@@ -411,34 +411,76 @@ router.post('/download/custom-detailed', authMiddleware, authorizeRoles('admin')
 });
 
 // GET /api/events/:eventId/enrollment-status
-router.get('/:eventId/enrollment-status', authMiddleware, authorizeRoles('admin'), async (req, res, next) => {
+router.get('/:eventId/enrollment-status-by-department', authMiddleware, authorizeRoles('admin'), async (req, res, next) => {
     try {
         const { eventId } = req.params;
-        const departmentQuery = req.query.department; 
-        if (!mongoose.Types.ObjectId.isValid(eventId)) { return sendErrorResponse(res, 400, 'Invalid Event ID.'); }
-        const event = await Event.findById(eventId).lean();
+        if (!mongoose.Types.ObjectId.isValid(eventId)) {
+            return sendErrorResponse(res, 400, 'Invalid Event ID.');
+        }
+
+        const event = await Event.findById(eventId).select('name courses').lean();
         if (!event) { return sendErrorResponse(res, 404, 'Event not found.'); }
-        let studentFilter = { role: 'student' };
-        if (departmentQuery && departmentQuery.toLowerCase() !== 'all') {
-            if (departmentQuery.toLowerCase() === 'n/a') { studentFilter.department = { $in: [null, ""] }; }
-            else { studentFilter.department = decodeURIComponent(departmentQuery); }
+
+        // --- QUERY 1: Get a definitive list of student IDs enrolled in this event ---
+        const enrolledStudentsData = await Event.aggregate([
+            { $match: { _id: new mongoose.Types.ObjectId(eventId) } },
+            { $unwind: "$courses" },
+            { $unwind: "$courses.slots" },
+            { $unwind: "$courses.slots.enrolled" },
+            { $group: {
+                _id: null,
+                enrolledIds: { $addToSet: "$courses.slots.enrolled" }
+            }}
+        ]);
+        
+        const enrolledStudentIds = new Set(
+            enrolledStudentsData.length > 0 
+            ? enrolledStudentsData[0].enrolledIds.map(id => id.toString()) 
+            : []
+        );
+        
+        // --- QUERY 2: Get all students in the system, grouped by department ---
+        const allStudentsByDept = await User.aggregate([
+            { $match: { role: 'student' } },
+            { $group: {
+                _id: { $ifNull: ["$department", "N/A"] },
+                students: { $push: { _id: "$_id" } },
+                totalStudentsInDept: { $sum: 1 }
+            }},
+            { $project: { department: "$_id", students: 1, totalStudentsInDept: 1, _id: 0 } },
+        ]);
+
+        if (allStudentsByDept.length === 0) {
+            return res.json({ success: true, data: { eventName: event.name, eventId: event._id, departmentalStatus: [], message: "No students found in the system." } });
         }
-        const allPotentialStudents = await User.find(studentFilter).select('_id name username department').lean();
-        if (allPotentialStudents.length === 0 && departmentQuery && departmentQuery.toLowerCase() !== 'all') {
-             return res.json({ success: true, data: { eventName: event.name, eventId: event._id, filterDepartment: departmentQuery, studentsWhoSelected: [], studentsNotYetSelected: [], countSelected: 0, countNotSelected: 0, totalPotentialInFilter: 0, message: `No students found matching the department filter: "${departmentQuery}"`} });
-        }
-        const enrolledStudentIdsInThisEvent = new Set();
-        (event.courses || []).forEach(c => (c.slots || []).forEach(s => (s.enrolled || []).forEach(id => enrolledStudentIdsInThisEvent.add(id.toString()))));
-        const studentsWhoSelected = []; const studentsNotYetSelected = [];
-        allPotentialStudents.forEach(student => {
-            const studentInfo = { _id: student._id, name: student.name, username: student.username, department: student.department || "N/A" };
-            if (enrolledStudentIdsInThisEvent.has(student._id.toString())) { studentsWhoSelected.push(studentInfo); }
-            else { studentsNotYetSelected.push(studentInfo); }
+        
+        // --- Combine the two datasets to get the final result ---
+        const departmentalStatus = allStudentsByDept.map(deptData => {
+            const enrolledCount = deptData.students.filter(student => enrolledStudentIds.has(student._id.toString())).length;
+            const totalInDept = deptData.totalStudentsInDept;
+            const percentageEnrolled = totalInDept > 0 ? parseFloat(((enrolledCount / totalInDept) * 100).toFixed(2)) : 0;
+
+            return {
+                department: deptData.department,
+                total_students: totalInDept,
+                signed_in_students: enrolledCount,
+                not_signed_in_students: totalInDept - enrolledCount,
+                percentage_signed_in: percentageEnrolled
+            };
+        }).sort((a,b) => a.department.localeCompare(b.department));
+
+        res.json({
+            success: true,
+            data: {
+                eventName: event.name,
+                eventId: event._id,
+                departmentalStatus: departmentalStatus
+            }
         });
-        res.json({ success: true, data: { eventName: event.name, eventId: event._id, filterDepartment: departmentQuery || 'all', studentsWhoSelected, studentsNotYetSelected, countSelected: studentsWhoSelected.length, countNotSelected: studentsNotYetSelected.length, totalPotentialInFilter: allPotentialStudents.length } });
+
     } catch (err) {
-        console.error(`Error fetching enrollment status for event ${eventId}:`, err.stack);
-        next(err);
+        console.error(`Error fetching departmental enrollment status for event ${req.params.eventId}:`, err.stack);
+        next(err); // Pass to global error handler
     }
 });
 

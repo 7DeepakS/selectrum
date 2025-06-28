@@ -298,7 +298,9 @@ function AdminView() {
     } finally { setLoadingStates(prev => ({ ...prev, downloadingCustomDetailedReport: false })); }
   };
 
-  const handleFetchEventStatusByDept = async () => {
+  // In src/components/AdminView.js
+
+const handleFetchEventStatusByDept = async () => {
     if (!selectedEventForStatusTable) {
       setTimedMessage('error', 'Please select an event to view its enrollment status.');
       return;
@@ -307,19 +309,29 @@ function AdminView() {
     setEventStatusByDeptData(null); 
 
     try {
-      // NOTE: Your backend might have a different route name here
+      // ======================= THE FIX IS HERE =======================
+      // The URL now correctly points to the endpoint that returns the aggregated data for the table.
       const url = `events/${selectedEventForStatusTable}/enrollment-status-by-department`;
+      // ===============================================================
+
+      console.log(`Fetching departmental status from: /api/${url}`); // Added a log for easy debugging
+
       const response = await api.get(url);
+
       if (response.data.success) {
         setEventStatusByDeptData(response.data.data);
+        // This checks if the backend sent a specific message (e.g., "No students found")
         if(response.data.data.message && (!response.data.data.departmentalStatus || response.data.data.departmentalStatus.length === 0)){ 
             setTimedMessage('info', response.data.data.message);
         }
       } else {
+        // This handles cases where the backend responds with { success: false, error: "..." }
         setTimedMessage('error', response.data.error || 'Failed to load event enrollment status.');
       }
     } catch (err) {
-      setTimedMessage('error', `Error fetching status by department: ${err.response?.data?.error || err.message}`);
+      // This handles network errors or backend responses with non-2xx status codes
+      setTimedMessage('error', `Error fetching status: ${err.error || err.message || 'A server error occurred.'}`);
+      console.error("Fetch event status by department error:", err);
     } finally {
       setLoadingStates(prev => ({ ...prev, fetchingEventEnrollmentStatus: false }));
     }
@@ -645,72 +657,72 @@ function AdminView() {
       </section>
 
       <section className="p-6 bg-white rounded-xl shadow-lg">
-        <h2 className="text-2xl font-semibold mb-4 text-gray-700 border-b pb-2">Event Enrollment Status by Department</h2>
-        <div className="sm:flex sm:space-x-4 mb-4 items-end">
-          <div className="flex-1 mb-4 sm:mb-0">
-            <label htmlFor="eventStatusTableSelect" className="block text-sm font-medium text-gray-700 mb-1">Select Event:</label>
-            <select 
-              id="eventStatusTableSelect"
-              value={selectedEventForStatusTable} 
-              onChange={(e) => setSelectedEventForStatusTable(e.target.value)}
-              className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            >
-              <option value="">-- Select Event --</option>
-              {events.map(event => <option key={event._id} value={event._id}>{event.name}</option>)}
-            </select>
-          </div>
-          <button 
-            onClick={handleFetchEventStatusByDept}
-            disabled={!selectedEventForStatusTable || loadingStates.fetchingEventEnrollmentStatus}
-            className="w-full sm:w-auto p-3 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 transition disabled:opacity-50 whitespace-nowrap"
-          >
-            {loadingStates.fetchingEventEnrollmentStatus ? "Loading..." : "View Event Status"}
-          </button>
-        </div>
-        
-        {loadingStates.fetchingEventEnrollmentStatus && <p className="mt-4 text-gray-600 text-center">Fetching status...</p>}
-        
-        {eventStatusByDeptData && !loadingStates.fetchingEventEnrollmentStatus && (
-          <div className="mt-6">
-            <h3 className="text-xl font-semibold text-gray-800 mb-3">
-              Status for: <span className="text-indigo-600">{eventStatusByDeptData.eventName}</span>
-            </h3>
-            
-            {eventStatusByDeptData.message && (!eventStatusByDeptData.departmentalStatus || eventStatusByDeptData.departmentalStatus.length === 0) && 
-                <p className="text-sm text-blue-600 mb-3 bg-blue-50 p-2 rounded">{eventStatusByDeptData.message}</p>
-            }
+  <h2 className="text-2xl font-semibold mb-4 text-gray-700 border-b pb-2">Event Enrollment Status by Department</h2>
+  <div className="sm:flex sm:space-x-4 mb-4 items-end">
+    <div className="flex-1 mb-4 sm:mb-0">
+      <label htmlFor="eventStatusTableSelect" className="block text-sm font-medium text-gray-700 mb-1">Select Event:</label>
+      <select 
+        id="eventStatusTableSelect"
+        value={selectedEventForStatusTable} 
+        onChange={(e) => setSelectedEventForStatusTable(e.target.value)}
+        className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+      >
+        <option value="">-- Select Event --</option>
+        {events.map(event => <option key={event._id} value={event._id}>{event.name}</option>)}
+      </select>
+    </div>
+    <button 
+      onClick={handleFetchEventStatusByDept}
+      disabled={!selectedEventForStatusTable || loadingStates.fetchingEventEnrollmentStatus}
+      className="w-full sm:w-auto p-3 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 transition disabled:opacity-50 whitespace-nowrap"
+    >
+      {loadingStates.fetchingEventEnrollmentStatus ? "Loading..." : "View Event Status"}
+    </button>
+  </div>
+  
+  {loadingStates.fetchingEventEnrollmentStatus && <p className="mt-4 text-gray-600 text-center animate-pulse">Fetching status...</p>}
+  
+  {eventStatusByDeptData && !loadingStates.fetchingEventEnrollmentStatus && (
+    <div className="mt-6">
+      <h3 className="text-xl font-semibold text-gray-800 mb-3">
+        Status for: <span className="text-indigo-600">{eventStatusByDeptData.eventName}</span>
+      </h3>
+      
+      {eventStatusByDeptData.message && (!eventStatusByDeptData.departmentalStatus || eventStatusByDeptData.departmentalStatus.length === 0) && 
+          <p className="text-sm text-blue-600 mb-3 bg-blue-50 p-2 rounded">{eventStatusByDeptData.message}</p>
+      }
 
-            {eventStatusByDeptData.departmentalStatus && eventStatusByDeptData.departmentalStatus.length > 0 ? (
-              <div className="overflow-x-auto shadow border-b border-gray-200 sm:rounded-lg">
-                <table className="min-w-full divide-y divide-gray-200">
-                  <thead className="bg-gray-100">
-                    <tr>
-                      <th scope="col" className="px-6 py-3 text-left text-xs font-bold text-gray-600 uppercase tracking-wider">Department</th>
-                      <th scope="col" className="px-6 py-3 text-left text-xs font-bold text-gray-600 uppercase tracking-wider">Total Students</th>
-                      <th scope="col" className="px-6 py-3 text-left text-xs font-bold text-gray-600 uppercase tracking-wider">Enrolled in Event</th>
-                      <th scope="col" className="px-6 py-3 text-left text-xs font-bold text-gray-600 uppercase tracking-wider">Not Enrolled</th>
-                      <th scope="col" className="px-6 py-3 text-left text-xs font-bold text-gray-600 uppercase tracking-wider">% Enrolled</th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
-                    {eventStatusByDeptData.departmentalStatus.map((deptStats) => (
-                      <tr key={deptStats.department} className="hover:bg-gray-50">
-                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{deptStats.department}</td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{deptStats.total_students}</td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-green-700 font-medium">{deptStats.signed_in_students}</td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-red-700 font-medium">{deptStats.not_signed_in_students}</td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{deptStats.percentage_signed_in}%</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ) : !loadingStates.fetchingEventEnrollmentStatus && (!eventStatusByDeptData.message || eventStatusByDeptData.totalPotentialInFilter > 0) ? (
-              <p className="text-gray-500 mt-4">No departmental enrollment data to display for this event, or no students found in the system matching criteria.</p>
-            ) : null}
-          </div>
-        )}
-      </section>
+      {eventStatusByDeptData.departmentalStatus && eventStatusByDeptData.departmentalStatus.length > 0 ? (
+        <div className="overflow-x-auto shadow border-b border-gray-200 sm:rounded-lg">
+          <table className="min-w-full divide-y divide-gray-200">
+            <thead className="bg-gray-100">
+              <tr>
+                <th scope="col" className="px-6 py-3 text-left text-xs font-bold text-gray-600 uppercase tracking-wider">Department</th>
+                <th scope="col" className="px-6 py-3 text-left text-xs font-bold text-gray-600 uppercase tracking-wider">Total Students</th>
+                <th scope="col" className="px-6 py-3 text-left text-xs font-bold text-gray-600 uppercase tracking-wider">Enrolled</th>
+                <th scope="col" className="px-6 py-3 text-left text-xs font-bold text-gray-600 uppercase tracking-wider">Not Enrolled</th>
+                <th scope="col" className="px-6 py-3 text-left text-xs font-bold text-gray-600 uppercase tracking-wider">% Enrolled</th>
+              </tr>
+            </thead>
+            <tbody className="bg-white divide-y divide-gray-200">
+              {eventStatusByDeptData.departmentalStatus.map((deptStats) => (
+                <tr key={deptStats.department} className="hover:bg-gray-50">
+                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{deptStats.department}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 text-center">{deptStats.total_students}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-green-700 font-medium text-center">{deptStats.signed_in_students}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-red-700 font-medium text-center">{deptStats.not_signed_in_students}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 text-center">{deptStats.percentage_signed_in}%</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : !loadingStates.fetchingEventEnrollmentStatus && !eventStatusByDeptData.message ? (
+        <p className="text-gray-500 mt-4">No departmental enrollment data to display for this event.</p>
+      ) : null}
+    </div>
+  )}
+</section>
 
      {/* --- NEW SECTION: Activity Log Viewer --- */}
 <section className="p-6 bg-white rounded-xl shadow-lg">
