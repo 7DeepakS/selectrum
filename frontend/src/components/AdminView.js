@@ -721,7 +721,7 @@ function AdminView() {
           <label htmlFor="logFilterUsername" className="text-sm font-medium text-gray-700">Filter by Username</label>
           <input
               id="logFilterUsername" type="text" name="username" value={logFilters.username}
-              onChange={handleLogFilterChange} placeholder="e.g., jsmith"
+              onChange={handleLogFilterChange} placeholder=""
               className="mt-1 w-full p-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
           />
       </div>
