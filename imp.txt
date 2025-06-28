@@ -1,0 +1,2 @@
+curl -X POST http://localhost:5000/api/auth/register -H "Content-Type: application/json" -d '{"username":"admin1","name":"Admin One","role":"admin","password":"admin1","department":"Admin"}'
+curl -X POST http://localhost:5000/api/auth/register -H "Content-Type: application/json" -d '{"username":"student1","name":"Student One","role":"student","password":"student1","department":"CS"}'
