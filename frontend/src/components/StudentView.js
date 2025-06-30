@@ -1,39 +1,20 @@
-// src/components/StudentView.js
 import React, { useState, useEffect, useCallback, useMemo, useContext } from 'react';
 import api from '../services/api';
 import { AuthContext } from '../context/AuthContext';
 
 // ----- Reusable Modal Component -----
-// This can be moved to its own file (e.g., src/components/common/Modal.js) later.
 const ConfirmationModal = ({ isOpen, onClose, onConfirm, title, children, confirmText = 'Confirm', closeText = 'Cancel', isInfoOnly = false }) => {
     if (!isOpen) return null;
-
     return (
-        <div 
-            className="fixed inset-0 bg-black bg-opacity-60 flex justify-center items-center z-50 transition-opacity"
-            onClick={onClose} // Allow closing by clicking the backdrop
-        >
-            <div 
-                className="bg-white p-6 rounded-xl shadow-2xl w-full max-w-md transform transition-all"
-                onClick={e => e.stopPropagation()} // Prevent modal from closing when clicking inside it
-            >
+        <div className="fixed inset-0 bg-black bg-opacity-60 flex justify-center items-center z-50" onClick={onClose}>
+            <div className="bg-white p-6 rounded-xl shadow-2xl w-full max-w-md" onClick={e => e.stopPropagation()}>
                 <h3 className="text-xl font-bold text-gray-800 mb-4">{title}</h3>
                 <div className="mb-6 text-gray-600">{children}</div>
                 <div className="flex justify-end space-x-4">
                     {!isInfoOnly && (
-                        <button 
-                            onClick={onClose} 
-                            className="px-4 py-2 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-400"
-                        >
-                            {closeText}
-                        </button>
+                        <button onClick={onClose} className="px-4 py-2 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-400">{closeText}</button>
                     )}
-                    <button 
-                        onClick={onConfirm} 
-                        className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    >
-                        {isInfoOnly ? 'OK' : confirmText}
-                    </button>
+                    <button onClick={onConfirm} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500">{isInfoOnly ? 'OK' : confirmText}</button>
                 </div>
             </div>
         </div>
@@ -42,28 +23,20 @@ const ConfirmationModal = ({ isOpen, onClose, onConfirm, title, children, confir
 
 
 function StudentView() {
-  const { user } = useContext(AuthContext); // Removed setUser as it's not needed here
+  const { user } = useContext(AuthContext);
   const [events, setEvents] = useState([]);
   const [expandedEventId, setExpandedEventId] = useState(null);
   const [loading, setLoading] = useState(true);
   const [uiMessage, setUiMessage] = useState({ type: '', text: '' });
-  const [enrollmentLoading, setEnrollmentLoading] = useState(null); // Tracks which slot is currently being processed
+  const [enrollmentLoading, setEnrollmentLoading] = useState(null);
 
-  // --- State for confirmation and info modals ---
   const [modalState, setModalState] = useState({
-      isOpen: false,
-      title: '',
-      content: null,
-      onConfirm: () => {},
-      confirmText: 'Confirm',
-      isInfoOnly: false,
+      isOpen: false, title: '', content: null, onConfirm: () => {}, confirmText: 'Confirm', isInfoOnly: false,
   });
 
   const setFeedbackMessage = (type, text, duration = 7000) => {
     setUiMessage({ type, text });
-    if (duration > 0) {
-      setTimeout(() => setUiMessage({ type: '', text: '' }), duration);
-    }
+    if (duration > 0) setTimeout(() => setUiMessage({ type: '', text: '' }), duration);
   };
 
   const fetchEvents = useCallback(async (isInitialLoad = false) => {
@@ -77,7 +50,6 @@ function StudentView() {
       }
     } catch (err) {
       setFeedbackMessage('error', err.error || err.message || 'Failed to fetch events.');
-      console.error('Fetch events error:', err);
     } finally {
       if (isInitialLoad) setLoading(false);
     }
@@ -87,18 +59,11 @@ function StudentView() {
     fetchEvents(true); 
   }, [fetchEvents]);
 
-  // --- Refactored enrollment flow to use modals ---
-  
   const handleEnrollClick = (event, course, slot) => {
     setModalState({
         isOpen: true,
         title: 'Confirm Enrollment',
-        content: (
-            <p>
-                Are you sure you want to enroll in <strong>{course.title}</strong>
-                {' '}at {new Date(slot.time).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}?
-            </p>
-        ),
+        content: <p>Are you sure you want to enroll in <strong>{course.title}</strong> at {new Date(slot.time).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}?</p>,
         onConfirm: () => performEnrollment(event._id, course._id, slot.id),
         isInfoOnly: false,
         confirmText: 'Yes, Enroll'
@@ -118,18 +83,11 @@ function StudentView() {
         fetchEvents(); 
       }
     } catch (err) {
-      const errorMessage = err.error || 'An unexpected error occurred. Please try again.';
+      const errorMessage = err.error || 'An unexpected error occurred.';
       setModalState({
         isOpen: true,
         title: 'Enrollment Failed',
-        content: (
-          <div>
-            <p className="mb-2">{errorMessage}</p>
-            {errorMessage.toLowerCase().includes('full') && (
-              <p className="text-sm text-gray-600">This slot may have filled up. Please choose another available slot.</p>
-            )}
-          </div>
-        ),
+        content: (<div><p className="mb-2">{errorMessage}</p>{errorMessage.toLowerCase().includes('full') && (<p className="text-sm text-gray-600">Please choose another available slot.</p>)}</div>),
         onConfirm: () => setModalState({ isOpen: false }),
         isInfoOnly: true,
       });
@@ -140,7 +98,7 @@ function StudentView() {
   };
 
   const closeModal = () => {
-    setModalState({ isOpen: false, title: '', content: null, onConfirm: () => {} });
+    setModalState({ isOpen: false });
   };
   
   const openEvents = useMemo(() => events.filter((e) => e.isOpen), [events]);
@@ -159,10 +117,7 @@ function StudentView() {
 
       {uiMessage.text && (
         <div className="max-w-4xl mx-auto">
-            <p className={`text-center mb-6 font-medium p-3 rounded-md border shadow-sm ${
-                uiMessage.type === 'error' ? 'bg-red-100 border-red-400 text-red-700' 
-                                        : 'bg-green-100 border-green-400 text-green-700'
-            }`}>
+            <p className={`text-center mb-6 font-medium p-3 rounded-md border shadow-sm ${ uiMessage.type === 'error' ? 'bg-red-100 border-red-400 text-red-700' : 'bg-green-100 border-green-400 text-green-700' }`}>
             {uiMessage.text}
             </p>
         </div>
@@ -170,7 +125,7 @@ function StudentView() {
       
       {openEvents.length === 0 && !loading && (
         <div className="text-center p-10 bg-white rounded-lg shadow-md">
-            <p className="text-gray-600 text-xl">No open events are available for enrollment at the moment.</p>
+            <p className="text-gray-600 text-xl">No open events are available for enrollment.</p>
             <p className="text-gray-500 mt-2">Please check back later.</p>
         </div>
       )}
@@ -181,109 +136,77 @@ function StudentView() {
             const alreadyEnrolledInThisEvent = event.isEnrolledInEvent; 
 
             return (
-              <div
-                key={event._id}
-                className="border rounded-xl shadow-lg hover:shadow-xl transition-all overflow-hidden bg-white"
-              >
-                <div
-                  className="p-5 bg-gradient-to-r from-indigo-500 to-purple-600 text-white cursor-pointer flex justify-between items-center"
-                  onClick={() => toggleEvent(event._id)}
-                >
+              <div key={event._id} className="border rounded-xl shadow-lg hover:shadow-xl transition-all overflow-hidden bg-white">
+                <div className="p-5 bg-gradient-to-r from-indigo-500 to-purple-600 text-white cursor-pointer flex justify-between items-center" onClick={() => toggleEvent(event._id)}>
                   <div>
                     <h4 className="text-xl font-semibold">{event.name}</h4>
-                    <p className="text-sm opacity-90">
-                      🟢 Open for Enrollment | {event.courses.length} Course(s)
-                    </p>
+                    <p className="text-sm opacity-90">🟢 Open for Enrollment | {event.courses.length} Course(s)</p>
                     {alreadyEnrolledInThisEvent && (
-                        <span className="mt-2 inline-block bg-green-200 text-green-800 text-xs font-semibold px-2.5 py-0.5 rounded-full">
-                            You have selected a course in this event
-                        </span>
+                        <div className="mt-2 inline-flex items-center bg-green-200 text-green-800 text-xs font-semibold px-2.5 py-1 rounded-full">
+                            <svg className="w-4 h-4 mr-1.5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd"></path></svg>
+                            Enrolled in: {event.enrolledCourseTitle || 'a selected course'}
+                        </div>
                     )}
                   </div>
-                  <span className={`text-2xl transform transition-transform duration-300 ${expandedEventId === event._id ? 'rotate-180' : 'rotate-0'}`}>
-                    ▼
-                  </span>
+                  <span className={`text-2xl transform transition-transform duration-300 ${expandedEventId === event._id ? 'rotate-180' : 'rotate-0'}`}>▼</span>
                 </div>
 
                 {expandedEventId === event._id && (
                   <div className="px-4 py-6">
                     {event.courses.length === 0 && <p className="text-gray-500 p-4 text-center">No courses available in this event yet.</p>}
-                    
                     {alreadyEnrolledInThisEvent && (
                         <div className="text-center p-3 mb-4 bg-sky-50 border border-sky-300 text-sky-700 rounded-md text-sm max-w-2xl mx-auto">
-                            You are already enrolled in a course for this event. To change your selection, please contact an administrator.
+                            You are enrolled in <strong>{event.enrolledCourseTitle || 'a course'}</strong> for this event. To change your selection, please contact an administrator.
                         </div>
                     )}
 
                     <div className="grid sm:grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                      {/* ======================= THE FIX IS HERE ======================= */}
                       {(event.courses || []).flatMap(course => 
                         (course.slots || []).map(slot => {
                           const slotIdentifier = `${event._id}-${course._id}-${slot.id}`;
                           const isFull = slot.availableCapacity <= 0;
                           
+                          // ======================= BUTTON LOGIC FIX =======================
+                          const isThisTheEnrolledSlot = slot.isEnrolled;
                           const isDisabled = 
-                              (alreadyEnrolledInThisEvent && !slot.isEnrolled) ||
+                              (alreadyEnrolledInThisEvent && !isThisTheEnrolledSlot) || // Enrolled in event, but not this slot
                               isFull || 
-                              !slot.isActive;
+                              !slot.isActive ||
+                              isThisTheEnrolledSlot; // Disable the button for the slot you're already in
+                          // ================================================================
                               
                           const isLoadingThisSlot = enrollmentLoading === slotIdentifier;
-
-                          const percentFull = slot.maxCapacity > 0 ? Math.min((slot.enrolled.length / slot.maxCapacity) * 100, 100) : 0;
+                          const percentFull = slot.maxCapacity > 0 ? Math.min((slot.maxCapacity - slot.availableCapacity) / slot.maxCapacity * 100, 100) : 0;
 
                           let buttonText = 'Enroll';
-                          if (slot.isEnrolled) buttonText = '✓ Enrolled Here';
+                          if (isThisTheEnrolledSlot) buttonText = '✓ Enrolled Here';
                           else if (alreadyEnrolledInThisEvent) buttonText = 'Course Selected'; 
                           else if (isFull) buttonText = 'Slot Full';
                           else if (!slot.isActive) buttonText = 'Slot Inactive';
                           if (isLoadingThisSlot) buttonText = 'Processing...';
 
                           return (
-                            <div
-                              key={slot._id} // Use Mongoose _id for slots for guaranteed uniqueness
-                              className={`p-5 border rounded-lg shadow-md hover:shadow-lg transition-all flex flex-col justify-between 
-                                          ${!slot.isActive ? 'bg-gray-100 opacity-70' : ''}
-                                          ${(isDisabled && !slot.isEnrolled) ? 'opacity-60' : ''}`}
-                            >
+                            <div key={slot._id} className={`p-5 border rounded-lg shadow-md hover:shadow-lg transition-all flex flex-col justify-between ${!slot.isActive ? 'bg-gray-100 opacity-70' : ''} ${(isDisabled && !isThisTheEnrolledSlot) ? 'opacity-60' : ''}`}>
                               <div>
                                 <h5 className="font-semibold text-lg text-gray-800">{course.title}</h5>
                                 {course.description && <p className="text-sm text-gray-600 mb-2">{course.description}</p>}
                                 <p className="text-sm text-gray-500">🕒 {new Date(slot.time).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}</p>
-                                <p className="text-sm text-gray-500 mb-2">
-                                  👥 Available Slots: {slot.availableCapacity} / {slot.maxCapacity}
-                                </p>
+                                <p className="text-sm text-gray-500 mb-2">👥 Available Slots: {slot.availableCapacity} / {slot.maxCapacity}</p>
                                 {!slot.isActive && <p className="text-xs text-red-500 font-semibold mb-1">SLOT INACTIVE</p>}
-
                                 <div className="w-full bg-gray-200 h-2.5 rounded-full overflow-hidden my-2" title={`${percentFull.toFixed(0)}% Full`}>
-                                  <div
-                                    className={`h-full transition-all duration-500 ease-out ${
-                                      percentFull >= 100 ? 'bg-red-600'
-                                      : percentFull >= 75 ? 'bg-yellow-500'
-                                      : 'bg-green-500'
-                                    }`}
-                                    style={{ width: `${percentFull}%` }}
-                                  />
+                                  <div className={`h-full transition-all duration-500 ease-out ${percentFull >= 100 ? 'bg-red-600' : percentFull >= 75 ? 'bg-yellow-500' : 'bg-green-500'}`} style={{ width: `${percentFull}%` }}/>
                                 </div>
                               </div>
-
                               <button
                                 onClick={() => handleEnrollClick(event, course, slot)}
                                 disabled={isDisabled || isLoadingThisSlot}
-                                className={`mt-4 w-full py-2.5 px-4 rounded-lg text-white font-semibold transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2
-                                  ${isLoadingThisSlot ? 'bg-gray-500 animate-pulse' : ''}
-                                  ${isDisabled
-                                    ? (slot.isEnrolled ? 'bg-green-600 cursor-default' : 'bg-gray-400 cursor-not-allowed')
-                                    : 'bg-blue-600 hover:bg-blue-700 focus:ring-blue-500'
-                                  }
-                                `}
-                              >
+                                className={`mt-4 w-full py-2.5 px-4 rounded-lg text-white font-semibold transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 ${isLoadingThisSlot ? 'bg-gray-500 animate-pulse' : ''} ${isDisabled ? (isThisTheEnrolledSlot ? 'bg-green-600 cursor-default' : 'bg-gray-400 cursor-not-allowed') : 'bg-blue-600 hover:bg-blue-700 focus:ring-blue-500'}`}>
                                 {buttonText}
                               </button>
                             </div>
                           );
                         })
                       )}
-                      {/* ====================== END OF THE FIX ======================= */}
                     </div>
                   </div>
                 )}
@@ -293,16 +216,7 @@ function StudentView() {
         </div>
       )}
 
-      {/* --- MODAL PLACEMENT --- */}
-      <ConfirmationModal
-          isOpen={modalState.isOpen}
-          onClose={closeModal}
-          onConfirm={modalState.onConfirm}
-          title={modalState.title}
-          confirmText={modalState.confirmText || 'Confirm'}
-          closeText="Cancel"
-          isInfoOnly={modalState.isInfoOnly}
-      >
+      <ConfirmationModal isOpen={modalState.isOpen} onClose={closeModal} onConfirm={modalState.onConfirm} title={modalState.title} confirmText={modalState.confirmText || 'Confirm'} isInfoOnly={modalState.isInfoOnly}>
           {modalState.content}
       </ConfirmationModal>
     </div>

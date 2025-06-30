@@ -40,32 +40,69 @@ const escapeCsvField = (field) => {
 };
 
 // GET /api/events
+// In backend/routes/events.js
+
+// GET /api/events - Get all events (enriched for the logged-in user)
 router.get('/', authMiddleware, async (req, res, next) => {
   try {
     const eventsFromDB = await Event.find().lean();
-    const userId = req.user.id; 
+    const userId = req.user.id;
 
-    const enrichedEvents = eventsFromDB.map(event => {
-      let isUserEnrolledInThisEventOverall = false;
-      const processedCourses = (event.courses || []).map(course => {
-        const processedSlots = (course.slots || []).map(slot => {
-          const isUserEnrolledInThisSpecificSlot = Array.isArray(slot.enrolled) && 
-            userId && 
-            slot.enrolled.some(enrolledUserId => enrolledUserId.equals(userId));
+    // We will build the final array here
+    const enrichedEvents = [];
+
+    // Use a standard for...of loop. This is the clearest and most reliable way.
+    for (const event of eventsFromDB) {
+      
+      let isEnrolledInThisEvent = false;
+      let enrolledCourseTitle = null; // Start fresh for each event
+
+      // Create a temporary copy of courses to modify
+      const processedCourses = [];
+
+      if (event.courses && Array.isArray(event.courses)) {
+        for (const course of event.courses) {
+          
+          const processedSlots = [];
+          for (const slot of (course.slots || [])) {
             
-          if (isUserEnrolledInThisSpecificSlot) {
-            isUserEnrolledInThisEventOverall = true;
+            // Check if the current user ID is in this slot's enrolled array
+            const isEnrolledInThisSlot = (slot.enrolled || []).some(
+              enrolledId => enrolledId.toString() === userId
+            );
+
+            if (isEnrolledInThisSlot) {
+              // If a match is found, set our flags and capture the title
+              isEnrolledInThisEvent = true;
+              enrolledCourseTitle = course.title; // THIS IS THE CRITICAL ASSIGNMENT
+            }
+
+            // Add the processed slot to our temporary slots array
+            processedSlots.push({
+              ...slot,
+              isEnrolled: isEnrolledInThisSlot,
+              availableCapacity: slot.maxCapacity - (slot.enrolled || []).length,
+            });
           }
-          return { ...slot, isEnrolled: isUserEnrolledInThisSpecificSlot, availableCapacity: slot.maxCapacity - (Array.isArray(slot.enrolled) ? slot.enrolled.length : 0) };
-        });
-        return { ...course, slots: processedSlots };
+          // Add the processed course to our temporary courses array
+          processedCourses.push({ ...course, slots: processedSlots });
+        }
+      }
+      
+      // Add the fully processed event to our results array
+      enrichedEvents.push({
+        ...event,
+        courses: processedCourses, // Use the newly processed courses/slots
+        isEnrolledInEvent: isEnrolledInThisEvent,
+        enrolledCourseTitle: enrolledCourseTitle, // This will be the correct title or null
       });
-      return { ...event, courses: processedCourses, isEnrolledInEvent: isUserEnrolledInThisEventOverall };
-    });
+    }
+
     res.status(200).json({ success: true, data: enrichedEvents });
+
   } catch (err) {
     console.error('Error fetching events:', err.stack);
-    next(err); // Pass to global error handler
+    next(err);
   }
 });
 
