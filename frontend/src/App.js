@@ -1,174 +1,127 @@
 // src/App.js
-import React, { useContext, Suspense, lazy } from 'react'; // Added Suspense and lazy
-import { BrowserRouter as Router, Routes, Route, Navigate, Outlet, useLocation } from 'react-router-dom';
-import { AuthProvider, AuthContext } from './context/AuthContext';
+import React, { Suspense, lazy } from 'react';
+import { BrowserRouter as Router, Routes, Route, Link, Outlet, Navigate, NavLink, useLocation } from 'react-router-dom';
+import { AuthProvider, useAuth } from './context/AuthContext';
 
-// Basic Loading Spinner Component (can be more elaborate)
-const LoadingSpinner = () => (
-  <div className="flex justify-center items-center min-h-screen text-xl font-semibold text-indigo-600">
-    Loading Page...
-  </div>
-);
-
-// Lazy load components for better initial load performance and easier debugging
+// --- Lazy Loaded Pages ---
 const Login = lazy(() => import('./components/Login'));
-const StudentView = lazy(() => import('./components/StudentView'));
-const AdminView = lazy(() => import('./components/AdminView'));
 const ChangePasswordPage = lazy(() => import('./components/ChangePasswordPage'));
+const StudentView = lazy(() => import('./components/StudentView')); // Your main student component
+const AdminDashboardPage = lazy(() => import('./pages/AdminDashboardPage'));
+const StudentManagementPage = lazy(() => import('./pages/StudentManagementPage'));
+const EventManagementPage = lazy(() => import('./pages/EventManagementPage'));
+const CourseManagementPage = lazy(() => import('./pages/CourseManagementPage'));
 
-// Main Layout Component (includes navigation for authenticated users)
-const MainLayout = () => {
-  const { user, logout, isAuthenticated } = useContext(AuthContext);
+// --- Helper & Layout Components ---
+const LoadingSpinner = () => <div className="flex justify-center items-center h-screen text-xl font-semibold text-indigo-600">Loading...</div>;
+const NotFoundPage = () => <div className="p-8 text-center"><h1>404 - Page Not Found</h1></div>;
+const UnauthorizedPage = () => <div className="p-8 text-center text-red-500"><h1>403 - Unauthorized</h1><p>You do not have permission to access this page.</p></div>;
 
-  if (!isAuthenticated && !user) { // Should ideally be handled by ProtectedRoute, but as a safeguard
-      // This might happen briefly during logout or if state is inconsistent.
-      // Depending on your ProtectedRoute logic, this might not be strictly necessary here.
-      return <Navigate to="/" replace />;
-  }
+// --- Student-specific Layout ---
+const StudentLayout = () => {
+    const { user, logout } = useAuth();
+    return (
+        <div className="min-h-screen bg-gray-50">
+            <header className="bg-indigo-700 text-white p-4 shadow-lg sticky top-0 z-10">
+                <div className="container mx-auto flex justify-between items-center">
+                    <div className="font-bold text-xl">
+                        Selectrum Portal
+                    </div>
+                    <div className="flex items-center">
+                        <span className="mr-4 text-indigo-100 hidden sm:inline">Welcome, {user?.name}!</span>
+                        <button 
+                          onClick={logout} 
+                          className="bg-red-600 hover:bg-red-700 text-white font-semibold py-2 px-4 rounded-md shadow hover:shadow-md transition"
+                        >
+                          Logout
+                        </button>
+                    </div>
+                </div>
+            </header>
+            <main className="container mx-auto p-4 md:p-6">
+                <Outlet /> {/* Renders the StudentView component */}
+            </main>
+        </div>
+    );
+};
 
+// --- Admin-specific Layout ---
+const AdminLayout = () => {
+  const { logout } = useAuth();
+  const navLinkClass = ({ isActive }) => `block p-2 rounded-md transition-colors ${isActive ? 'bg-indigo-600 text-white' : 'hover:bg-gray-700'}`;
   return (
-    <div className="min-h-screen bg-gray-50">
-      {isAuthenticated && user && ( // Ensure user object exists before accessing its properties
-        <nav className="bg-indigo-700 text-white p-4 shadow-lg">
-          <div className="container mx-auto flex flex-wrap justify-between items-center">
-            <span className="font-bold text-2xl tracking-tight">
-              Selectrum Portal <span className="text-sm font-normal text-indigo-200">({user.role})</span>
-            </span>
-            <div className="flex items-center mt-2 sm:mt-0">
-              <span className="mr-4 text-indigo-100">
-                Welcome, {user.name || user.username}!
-              </span>
-              <button
-                onClick={logout}
-                className="bg-red-600 hover:bg-red-700 text-white font-semibold py-2 px-4 rounded-md shadow hover:shadow-md transition duration-150 ease-in-out"
-              >
-                Logout
-              </button>
-            </div>
-          </div>
-        </nav>
-      )}
-      <main className="container mx-auto p-6"> {/* Added more padding */}
-        <Suspense fallback={<LoadingSpinner />}>
-          <Outlet /> {/* Renders the matched child route's element */}
-        </Suspense>
-      </main>
-      <footer className="text-center p-4 text-sm text-gray-500 border-t mt-auto">
-        © {new Date().getFullYear()} Selectrum. All rights reserved.
-      </footer>
+    <div className="flex min-h-screen bg-gray-100">
+      <nav className="w-64 bg-gray-800 text-white p-5 flex-shrink-0 flex flex-col">
+        <div>
+          <h2 className="font-bold text-2xl mb-10 text-center">Selectrum Admin</h2>
+          <ul className="space-y-3">
+            <li><NavLink to="/admin" end className={navLinkClass}>Dashboard</NavLink></li>
+            <li><NavLink to="/admin/students" className={navLinkClass}>Manage Students</NavLink></li>
+            <li><NavLink to="/admin/events" className={navLinkClass}>Manage Events</NavLink></li>
+          </ul>
+        </div>
+        <div className="mt-auto"><button onClick={logout} className="w-full p-2 rounded bg-red-600 hover:bg-red-700">Logout</button></div>
+      </nav>
+      <main className="flex-1 p-8 overflow-y-auto"><Outlet /></main>
     </div>
   );
 };
 
-// Protected Route Component (Generic)
-// Assumes AuthContext provides: isAuthenticated, loading, user
-const ProtectedRoute = ({ allowedRoles }) => {
-  const { isAuthenticated, user, loading } = useContext(AuthContext);
+
+// --- Route Protection and Logic Components ---
+const ProtectedRoute = ({ children, adminOnly = false }) => {
+  const { isAuthenticated, user, isLoading } = useAuth();
   const location = useLocation();
-
-  if (loading) {
-    return <LoadingSpinner />;
-  }
-
-  if (!isAuthenticated) {
-    return <Navigate to="/" state={{ from: location }} replace />;
-  }
-
+  if (isLoading) return <LoadingSpinner />;
+  if (!isAuthenticated) return <Navigate to="/login" state={{ from: location }} replace />;
   if (user && user.requiresPasswordChange && location.pathname !== '/change-password') {
-    // If password change is required and user is not on change-password page, redirect them.
     return <Navigate to="/change-password" state={{ from: location }} replace />;
   }
-  
-  if (user && !user.requiresPasswordChange && location.pathname === '/change-password') {
-    // If password change is NOT required and user tries to access change-password, redirect to their dashboard.
-     return <Navigate to={user.role === 'admin' ? '/admin' : '/student'} replace />;
-  }
-
-
-  if (allowedRoles && user && !allowedRoles.includes(user.role)) {
-    // User is authenticated but does not have the required role
-    // You could redirect to a "Not Authorized" page or back to login/dashboard
-    // For simplicity, redirecting to their default dashboard or login
-    console.warn(`User role ${user.role} not in allowedRoles for ${location.pathname}. Redirecting.`);
-    return <Navigate to={user.role === 'admin' ? '/admin' : '/student'} replace />; // Or to '/'
-  }
-
-  return <Outlet />; // Render child routes if all checks pass
+  if (adminOnly && user?.role !== 'admin') return <Navigate to="/unauthorized" replace />;
+  return children;
 };
 
-
-// Login Page Wrapper (handles redirection logic)
 const LoginWrapper = () => {
-  const { isAuthenticated, user, loading } = useContext(AuthContext);
-
-  if (loading) {
-    return <LoadingSpinner />;
-  }
-
+  const { isAuthenticated, user, isLoading } = useAuth();
+  if (isLoading) return <LoadingSpinner />;
   if (isAuthenticated && user) {
-    if (user.requiresPasswordChange) {
-      return <Navigate to="/change-password" replace />;
-    }
-    // If authenticated and no password change needed, redirect to appropriate dashboard
-    return <Navigate to={user.role === 'admin' ? '/admin' : '/student'} replace />;
+    if (user.requiresPasswordChange) return <Navigate to="/change-password" replace />;
+    return <Navigate to={user.role === 'admin' ? '/admin' : '/student-dashboard'} replace />;
   }
-
-  // If not authenticated, show Login page
-  return (
-    <Suspense fallback={<LoadingSpinner />}>
-      <Login />
-    </Suspense>
-  );
+  return <Login />;
 };
 
-// Route specifically for the Change Password page
-const ChangePasswordRoute = () => {
-    const { isAuthenticated, user, loading } = useContext(AuthContext);
-
-    if (loading) {
-        return <LoadingSpinner />;
-    }
-
-    if (!isAuthenticated || !user) { // Must be authenticated to change password
-        return <Navigate to="/" replace />;
-    }
-    
-    // If password change is not required, but they are on this page, redirect them.
-    // This could happen if they bookmark it or navigate directly.
-    // The LoginWrapper also handles this, but good to have a check here too.
-    if (user && !user.requiresPasswordChange) {
-        return <Navigate to={user.role === 'admin' ? '/admin' : '/student'} replace />;
-    }
-
-    return (
-        <Suspense fallback={<LoadingSpinner />}>
-            <ChangePasswordPage />
-        </Suspense>
-    );
-};
-
-
+// --- Main App Component ---
 function App() {
   return (
     <Router>
-      <AuthProvider> {/* AuthProvider should handle its own loading state internally */}
-        <Routes>
-          <Route path="/" element={<LoginWrapper />} />
-          <Route path="/change-password" element={<ChangePasswordRoute />} />
+      <AuthProvider>
+        <Suspense fallback={<LoadingSpinner />}>
+          <Routes>
+            {/* Public / Entry Routes */}
+            <Route path="/login" element={<LoginWrapper />} />
+            <Route path="/" element={<LoginWrapper />} />
+            <Route path="/unauthorized" element={<UnauthorizedPage />} />
+            
+            {/* Authenticated Routes */}
+            <Route path="/change-password" element={<ProtectedRoute><ChangePasswordPage /></ProtectedRoute>} />
+            
+            {/* Student Route using the new StudentLayout */}
+            <Route path="/student-dashboard" element={<ProtectedRoute><StudentLayout /></ProtectedRoute>}>
+              <Route index element={<StudentView />} />
+            </Route>
 
-          {/* Protected Routes within MainLayout */}
-          <Route element={<MainLayout />}> {/* MainLayout now wraps protected content */}
-            <Route element={<ProtectedRoute allowedRoles={['student']} />}>
-              <Route path="student" element={<StudentView />} /> {/* No leading slash for nested routes */}
+            {/* Admin Section with its own AdminLayout */}
+            <Route path="/admin" element={<ProtectedRoute adminOnly={true}><AdminLayout /></ProtectedRoute>}>
+              <Route index element={<AdminDashboardPage />} />
+              <Route path="students" element={<StudentManagementPage />} />
+              <Route path="events" element={<EventManagementPage />} />
+              <Route path="events/:eventId" element={<CourseManagementPage />} />
             </Route>
-            <Route element={<ProtectedRoute allowedRoles={['admin']} />}>
-              <Route path="admin" element={<AdminView />} /> {/* No leading slash for nested routes */}
-            </Route>
-          </Route>
-          
-          {/* Fallback for any other unmatched routes */}
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
+            
+            <Route path="*" element={<NotFoundPage />} />
+          </Routes>
+        </Suspense>
       </AuthProvider>
     </Router>
   );

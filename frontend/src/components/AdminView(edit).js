@@ -21,7 +21,6 @@ function AdminView() {
   
   const [selectedEventForStatusTable, setSelectedEventForStatusTable] = useState(''); 
   const [eventStatusByDeptData, setEventStatusByDeptData] = useState(null); 
-  
   const [activityLogs, setActivityLogs] = useState([]);
   const [logFilters, setLogFilters] = useState({ username: '', action: '' });
   const [logPagination, setLogPagination] = useState({ currentPage: 1, totalPages: 1, totalLogs: 0 });
@@ -53,30 +52,31 @@ function AdminView() {
   };
 
   const fetchDashboardData = useCallback(async () => {
-    setLoadingStates(p => ({ ...p, initialData: true }));
+    setLoadingStates(prev => ({ ...prev, initialData: true }));
     try {
-        const [eventsRes, deptsRes] = await Promise.all([
-            api.get('events/all'),
+        const [eventsResponse, deptsResponse] = await Promise.all([
+            api.get('events'),
             api.get('events/enrollment-summary/by-department').catch(() => null)
         ]);
-        if (eventsRes.data.success) setEvents(eventsRes.data.data || []);
-        if (deptsRes?.data?.success) {
-            let depts = ['all', ...(deptsRes.data.data.distinctDepartments || [])];
-            setDistinctDepartments([...new Set(depts)].sort((a,b) => {
-                if (a === 'all') return -1; if(b === 'all') return 1;
-                if (a === 'N/A') return 1; if(b === 'N/A') return -1;
+        if (eventsResponse.data.success) { setEvents(eventsResponse.data.data || []); }
+        if (deptsResponse?.data?.success) {
+            let depts = ['all', ...(deptsResponse.data.data.distinctDepartments || [])];
+            depts = [...new Set(depts)].sort((a, b) => {
+                if (a === 'all') return -1; if (b === 'all') return 1;
+                if (a === 'N/A') return 1; if (b === 'N/A') return -1;
                 return String(a).localeCompare(b);
-            }));
+            });
+            setDistinctDepartments(depts);
         }
     } catch (err) {
-        setTimedMessage('error', err.error || 'Failed to load dashboard data.');
+        setTimedMessage('error', `Failed to load dashboard data: ${err.error || err.message}`);
     } finally {
-        setLoadingStates(p => ({ ...p, initialData: false }));
+        setLoadingStates(prev => ({ ...prev, initialData: false }));
     }
   }, []);
-  
+
   const fetchActivityLogs = useCallback(async (page = 1) => {
-    setLoadingStates(p => ({ ...p, isFetchingLogs: true }));
+    setLoadingStates(prev => ({ ...prev, isFetchingLogs: true }));
     try {
         const params = new URLSearchParams({ page, limit: 15 });
         if (logFilters.username) params.append('username', logFilters.username);
@@ -87,92 +87,37 @@ function AdminView() {
             setLogPagination(response.data.data);
         }
     } catch (err) {
-        setTimedMessage('error', err.error || 'Could not fetch logs.');
+        setTimedMessage('error', `Could not fetch activity logs: ${err.error || err.message}`);
     } finally {
-        setLoadingStates(p => ({ ...p, isFetchingLogs: false }));
+        setLoadingStates(prev => ({ ...prev, isFetchingLogs: false }));
     }
   }, [logFilters]);
 
   useEffect(() => {
     fetchDashboardData();
     fetchActivityLogs();
-  }, [fetchDashboardData, fetchActivityLogs]);
+  }, [fetchDashboardData]);
 
   useEffect(() => {
-    if (!loadingStates.initialData) fetchActivityLogs(logPagination.currentPage);
+    if(!loadingStates.initialData) fetchActivityLogs(logPagination.currentPage);
   }, [logPagination.currentPage]);
 
   useEffect(() => { 
-      if (selectedScopeType === 'course' || selectedScopeType === 'event') {
+      if ((selectedScopeType === 'course' || selectedScopeType === 'event') && selectedEventForReport) {
           const event = events.find(e => e._id === selectedEventForReport);
           setCoursesInSelectedEvent(event ? (event.courses || []) : []);
           if(selectedScopeType === 'course') setSelectedCourseForReport(''); 
+      } else {
+          setCoursesInSelectedEvent([]);
+          if(selectedScopeType === 'course') setSelectedCourseForReport('');
       }
   }, [selectedEventForReport, selectedScopeType, events]);
 
   useEffect(() => { setEventStatusByDeptData(null); }, [selectedEventForStatusTable]);
   
-  const handleFetchEventStatusByDept = async () => {
-    if (!selectedEventForStatusTable) { setTimedMessage('error', 'Please select an event.'); return; }
-    setLoadingStates(p => ({ ...p, fetchingEventEnrollmentStatus: true }));
-    setEventStatusByDeptData(null);
-    try {
-      const url = `events/${selectedEventForStatusTable}/enrollment-status-by-department`;
-      const response = await api.get(url);
-      if (response.data.success) {
-        setEventStatusByDeptData(response.data.data);
-        if (response.data.data.message) setTimedMessage('info', response.data.data.message);
-      } else {
-        setTimedMessage('error', response.data.error);
-      }
-    } catch (err) {
-      setTimedMessage('error', `Error fetching status: ${err.error || err.message}`);
-    } finally {
-      setLoadingStates(p => ({ ...p, fetchingEventEnrollmentStatus: false }));
-    }
-  };
+  const handleColumnToggle = (columnName) => { setSelectedColumns(prev => ({ ...prev, [columnName]: !prev[columnName] })); };
 
-  const handleLogFilterChange = (e) => setLogFilters(prev => ({ ...prev, [e.target.name]: e.target.value }));
-  const handleApplyLogFilters = () => {
-    if (logPagination.currentPage !== 1) setLogPagination(p => ({ ...p, currentPage: 1 }));
-    else fetchActivityLogs(1);
-  };
-  const handleLogPageChange = (newPage) => {
-    if (newPage > 0 && newPage <= logPagination.totalPages && newPage !== logPagination.currentPage) {
-        setLogPagination(p => ({ ...p, currentPage: newPage }));
-    }
-  };
-
-  const handleColumnToggle = (columnName) => setSelectedColumns(prev => ({ ...prev, [columnName]: !prev[columnName] }));
-
-  const handleDownloadLogs = async () => {
-    setLoadingStates(p => ({ ...p, isDownloadingLogs: true }));
-    try {
-        const params = new URLSearchParams();
-        if (logFilters.username) params.append('username', logFilters.username);
-        if (logFilters.action) params.append('action', logFilters.action);
-        const endpoint = `events/activity-logs/download?${params.toString()}`;
-        const response = await api.get(endpoint, { responseType: 'blob' });
-        const blob = response.data;
-        if (!(blob instanceof Blob)) throw new Error("Response was not a file.");
-        const url = window.URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        let fileName = response.headers['content-disposition']?.split('filename=')[1]?.replace(/"/g, '') || 'activity_logs.csv';
-        link.setAttribute('download', fileName);
-        document.body.appendChild(link);
-        link.click();
-        link.remove();
-        window.URL.revokeObjectURL(url);
-        setTimedMessage('success', 'Activity log download started.');
-    } catch (err) {
-        setTimedMessage('error', err.error || 'Could not download activity logs.');
-    } finally {
-        setLoadingStates(p => ({ ...p, isDownloadingLogs: false }));
-    }
-  };
-
-  const handleDownloadCustomDetailedReport = async () => {
+  const handleDownloadCustomDetailedReport = async () => { 
     let reportScopePayload = {};
     let scopeDescription = "";
     if (selectedScopeType === 'department') {
@@ -195,31 +140,102 @@ function AdminView() {
     const activeColumns = Object.entries(selectedColumns).filter(([, value]) => value).map(([key]) => key);
     if (activeColumns.length === 0) { setTimedMessage('error', 'Please select at least one column.'); return; }
 
-    setLoadingStates(p => ({ ...p, downloadingCustomDetailedReport: true }));
+    setLoadingStates(prev => ({ ...prev, downloadingCustomDetailedReport: true }));
     try {
-        const endpoint = `events/download/custom-detailed`;
+        const endpoint = `events/download/custom-detailed`; 
         const response = await api.post(endpoint, { scope: reportScopePayload, columns: activeColumns }, { responseType: 'blob' });
         const blob = response.data;
-        if (!(blob instanceof Blob)) throw new Error('Response was not a Blob.');
+        if (!(blob instanceof Blob)) { throw new Error('Response was not a Blob.'); }
         const url = window.URL.createObjectURL(blob);
         const link = document.createElement('a');
         link.href = url;
-        let fileName = response.headers['content-disposition']?.split('filename=')[1]?.replace(/"/g, '') || `report_${scopeDescription.replace(/[^\w-]/g, '_')}.csv`;
+        const contentDisposition = response.headers['content-disposition'];
+        let fileName = `custom_report_${scopeDescription.replace(/[^\w-]/g, '_').substring(0, 50)}.csv`;
+        if (contentDisposition) {
+            const fileNameMatch = contentDisposition.match(/filename="?([^"]+)"?/i);
+            if (fileNameMatch && fileNameMatch.length > 1) fileName = fileNameMatch[1];
+        }
+        link.setAttribute('download', fileName); document.body.appendChild(link); link.click(); link.remove(); window.URL.revokeObjectURL(url);
+        setTimedMessage('success', `Custom report for "${scopeDescription.replace(/_/g, ' ')}" download started.`);
+    } catch (err) {
+        let finalErrorMessage = `Custom report download error: `;
+        if (err.response && err.response.data instanceof Blob && (err.response.data.type.includes('application/json') || err.response.data.type.includes('text/plain'))) {
+            try {
+                const errorText = await err.response.data.text(); console.error("Error Blob Content:", errorText);
+                if (err.response.data.type.includes('application/json')) { const errorJson = JSON.parse(errorText); finalErrorMessage += errorJson.error || errorJson.message || 'Err.'; }
+                else { finalErrorMessage += errorText; }
+            } catch (parseError) { finalErrorMessage += `Could not parse error. ${err.message || ''}`; }
+        } else if (err.response && err.response.data) { finalErrorMessage += err.response.data.error || err.response.data.message || 'Server error.'; console.error("Server JSON error:", err.response.data);
+        } else { finalErrorMessage += err.message || 'Could not process download.'; }
+        setTimedMessage('error', finalErrorMessage);
+    } finally { setLoadingStates(prev => ({ ...prev, downloadingCustomDetailedReport: false })); }
+   };
+  const handleFetchEventStatusByDept = async () => { if (!selectedEventForStatusTable) {
+      setTimedMessage('error', 'Please select an event to view its enrollment status.');
+      return;
+    }
+    setLoadingStates(prev => ({ ...prev, fetchingEventEnrollmentStatus: true }));
+    setEventStatusByDeptData(null); 
+
+    try {
+      const url = `events/${selectedEventForStatusTable}/enrollment-status-by-department`;
+
+      console.log(`Fetching departmental status from: /api/${url}`); // Added a log for easy debugging
+
+      const response = await api.get(url);
+
+      if (response.data.success) {
+        setEventStatusByDeptData(response.data.data);
+        // This checks if the backend sent a specific message (e.g., "No students found")
+        if(response.data.data.message && (!response.data.data.departmentalStatus || response.data.data.departmentalStatus.length === 0)){ 
+            setTimedMessage('info', response.data.data.message);
+        }
+      } else {
+        // This handles cases where the backend responds with { success: false, error: "..." }
+        setTimedMessage('error', response.data.error || 'Failed to load event enrollment status.');
+      }
+    } catch (err) {
+      // This handles network errors or backend responses with non-2xx status codes
+      setTimedMessage('error', `Error fetching status: ${err.error || err.message || 'A server error occurred.'}`);
+      console.error("Fetch event status by department error:", err);
+    } finally {
+      setLoadingStates(prev => ({ ...prev, fetchingEventEnrollmentStatus: false }));
+    } };
+  const handleLogFilterChange = (e) => { setLogFilters(prev => ({ ...prev, [e.target.name]: e.target.value })); };
+  const handleApplyLogFilters = () => { if (logPagination.currentPage !== 1) { setLogPagination(prev => ({ ...prev, currentPage: 1 })); } else { fetchActivityLogs(1); }};
+  const handleLogPageChange = (newPage) => { if (newPage > 0 && newPage <= logPagination.totalPages) { setLogPagination(prev => ({ ...prev, currentPage: newPage })); }};
+  const handleDownloadLogs = async () => { setLoadingStates(prev => ({ ...prev, isDownloadingLogs: true }));
+    try {
+        const params = new URLSearchParams();
+        if (logFilters.username) params.append('username', logFilters.username);
+        if (logFilters.action) params.append('action', logFilters.action);
+        const endpoint = `events/activity-logs/download?${params.toString()}`;
+        const response = await api.get(endpoint, { responseType: 'blob' });
+        const blob = response.data;
+        if (!(blob instanceof Blob)) throw new Error("Response was not a file.");
+        const url = window.URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        const contentDisposition = response.headers['content-disposition'];
+        let fileName = 'activity_logs.csv';
+        if (contentDisposition) {
+            const fileNameMatch = contentDisposition.match(/filename="?([^"]+)"?/i);
+            if (fileNameMatch && fileNameMatch.length > 1) fileName = fileNameMatch[1];
+        }
         link.setAttribute('download', fileName);
         document.body.appendChild(link);
         link.click();
         link.remove();
         window.URL.revokeObjectURL(url);
-        setTimedMessage('success', `Custom report download started.`);
+        setTimedMessage('success', 'Activity log download started.');
     } catch (err) {
-        setTimedMessage('error', `Custom report download error: ${err.error || err.message}`);
+        setTimedMessage('error', err.error || 'Could not download activity logs.');
     } finally {
-        setLoadingStates(p => ({ ...p, downloadingCustomDetailedReport: false }));
-    }
-  };
+        setLoadingStates(prev => ({ ...prev, isDownloadingLogs: false }));
+    } };
 
   if (loadingStates.initialData) {
-    return <div className="p-4 text-center">Loading Dashboard Data...</div>;
+    return <div className="p-6 text-center text-lg">Loading Dashboard Data...</div>;
   }
 
   return (
@@ -227,49 +243,77 @@ function AdminView() {
       {uiMessages.error && <p className="p-3 my-4 bg-red-100 text-red-700 rounded-md">{uiMessages.error}</p>}
       {uiMessages.success && <p className="p-3 my-4 bg-green-100 text-green-700 rounded-md">{uiMessages.success}</p>}
       {uiMessages.info && <p className="p-3 my-4 bg-blue-100 text-blue-700 rounded-md">{uiMessages.info}</p>}
-      
+
+      {/* Event Enrollment Status by Department Table */}
       <section className="p-6 bg-white rounded-xl shadow-lg">
-        <h2 className="text-2xl font-semibold mb-4 text-gray-700 border-b pb-2">Event Enrollment Status by Department</h2>
-        <div className="sm:flex sm:space-x-4 mb-4 items-end">
-            <div className="flex-1 mb-4 sm:mb-0">
-                <label htmlFor="eventStatusTableSelect" className="block text-sm font-medium text-gray-700 mb-1">Select Event:</label>
-                <select id="eventStatusTableSelect" value={selectedEventForStatusTable} onChange={(e) => setSelectedEventForStatusTable(e.target.value)} className="w-full p-3 border border-gray-300 rounded-lg">
-                    <option value="">-- Select Event --</option>
-                    {events.map(event => <option key={event._id} value={event._id}>{event.name}</option>)}
-                </select>
-            </div>
-            <button onClick={handleFetchEventStatusByDept} disabled={!selectedEventForStatusTable || loadingStates.fetchingEventEnrollmentStatus} className="w-full sm:w-auto p-3 bg-cyan-600 text-white rounded-lg disabled:opacity-50">
-                {loadingStates.fetchingEventEnrollmentStatus ? "Loading..." : "View Status"}
-            </button>
-        </div>
-        {loadingStates.fetchingEventEnrollmentStatus && <p className="mt-4 text-center animate-pulse">Fetching status...</p>}
-        {eventStatusByDeptData && !loadingStates.fetchingEventEnrollmentStatus && (
-            <div className="mt-6">
-                <h3 className="text-xl font-semibold text-gray-800 mb-3">Status for: <span className="text-indigo-600">{eventStatusByDeptData.eventName}</span></h3>
-                {(eventStatusByDeptData.departmentalStatus || []).length > 0 ? (
-                    <div className="overflow-x-auto shadow border-b rounded-lg">
-                        <table className="min-w-full divide-y divide-gray-200"><thead className="bg-gray-100"><tr>
-                            <th className="px-6 py-3 text-left text-xs font-bold uppercase">Department</th>
-                            <th className="px-6 py-3 text-center text-xs font-bold uppercase">Total Students</th>
-                            <th className="px-6 py-3 text-center text-xs font-bold uppercase">Enrolled</th>
-                            <th className="px-6 py-3 text-center text-xs font-bold uppercase">Not Enrolled</th>
-                            <th className="px-6 py-3 text-center text-xs font-bold uppercase">% Enrolled</th>
-                        </tr></thead><tbody className="bg-white divide-y">
-                        {eventStatusByDeptData.departmentalStatus.map((d) => (
-                            <tr key={d.department} className="hover:bg-gray-50">
-                                <td className="px-6 py-4 font-medium">{d.department}</td>
-                                <td className="px-6 py-4 text-center">{d.total_students}</td>
-                                <td className="px-6 py-4 text-green-700 font-medium text-center">{d.signed_in_students}</td>
-                                <td className="px-6 py-4 text-red-700 font-medium text-center">{d.not_signed_in_students}</td>
-                                <td className="px-6 py-4 text-center">{d.percentage_signed_in}%</td>
-                            </tr>
-                        ))}</tbody></table>
-                    </div>
-                ) : <p className="mt-4 text-gray-500">No departmental enrollment data to display for this event.</p>}
-            </div>
-        )}
-      </section>
+  <h2 className="text-2xl font-semibold mb-4 text-gray-700 border-b pb-2">Event Enrollment Status by Department</h2>
+  <div className="sm:flex sm:space-x-4 mb-4 items-end">
+    <div className="flex-1 mb-4 sm:mb-0">
+      <label htmlFor="eventStatusTableSelect" className="block text-sm font-medium text-gray-700 mb-1">Select Event:</label>
+      <select 
+        id="eventStatusTableSelect"
+        value={selectedEventForStatusTable} 
+        onChange={(e) => setSelectedEventForStatusTable(e.target.value)}
+        className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+      >
+        <option value="">-- Select Event --</option>
+        {events.map(event => <option key={event._id} value={event._id}>{event.name}</option>)}
+      </select>
+    </div>
+    <button 
+      onClick={handleFetchEventStatusByDept}
+      disabled={!selectedEventForStatusTable || loadingStates.fetchingEventEnrollmentStatus}
+      className="w-full sm:w-auto p-3 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 transition disabled:opacity-50 whitespace-nowrap"
+    >
+      {loadingStates.fetchingEventEnrollmentStatus ? "Loading..." : "View Event Status"}
+    </button>
+  </div>
+  
+  {loadingStates.fetchingEventEnrollmentStatus && <p className="mt-4 text-gray-600 text-center animate-pulse">Fetching status...</p>}
+  
+  {eventStatusByDeptData && !loadingStates.fetchingEventEnrollmentStatus && (
+    <div className="mt-6">
+      <h3 className="text-xl font-semibold text-gray-800 mb-3">
+        Status for: <span className="text-indigo-600">{eventStatusByDeptData.eventName}</span>
+      </h3>
       
+      {eventStatusByDeptData.message && (!eventStatusByDeptData.departmentalStatus || eventStatusByDeptData.departmentalStatus.length === 0) && 
+          <p className="text-sm text-blue-600 mb-3 bg-blue-50 p-2 rounded">{eventStatusByDeptData.message}</p>
+      }
+
+      {eventStatusByDeptData.departmentalStatus && eventStatusByDeptData.departmentalStatus.length > 0 ? (
+        <div className="overflow-x-auto shadow border-b border-gray-200 sm:rounded-lg">
+          <table className="min-w-full divide-y divide-gray-200">
+            <thead className="bg-gray-100">
+              <tr>
+                <th scope="col" className="px-6 py-3 text-left text-xs font-bold text-gray-600 uppercase tracking-wider">Department</th>
+                <th scope="col" className="px-6 py-3 text-left text-xs font-bold text-gray-600 uppercase tracking-wider">Total Students</th>
+                <th scope="col" className="px-6 py-3 text-left text-xs font-bold text-gray-600 uppercase tracking-wider">Enrolled</th>
+                <th scope="col" className="px-6 py-3 text-left text-xs font-bold text-gray-600 uppercase tracking-wider">Not Enrolled</th>
+                <th scope="col" className="px-6 py-3 text-left text-xs font-bold text-gray-600 uppercase tracking-wider">% Enrolled</th>
+              </tr>
+            </thead>
+            <tbody className="bg-white divide-y divide-gray-200">
+              {eventStatusByDeptData.departmentalStatus.map((deptStats) => (
+                <tr key={deptStats.department} className="hover:bg-gray-50">
+                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{deptStats.department}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 text-center">{deptStats.total_students}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-green-700 font-medium text-center">{deptStats.signed_in_students}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-red-700 font-medium text-center">{deptStats.not_signed_in_students}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 text-center">{deptStats.percentage_signed_in}%</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : !loadingStates.fetchingEventEnrollmentStatus && !eventStatusByDeptData.message ? (
+        <p className="text-gray-500 mt-4">No departmental enrollment data to display for this event.</p>
+      ) : null}
+    </div>
+  )}
+</section>
+
+      {/* Download Reports Section */}
       <section className="p-6 bg-white rounded-xl shadow-lg">
         <h2 className="text-2xl font-semibold mb-4 text-gray-700 border-b pb-2">Download Reports</h2>
         <div className="p-4 border-2 border-indigo-200 rounded-lg bg-indigo-50">
@@ -356,6 +400,7 @@ function AdminView() {
         </div>
       </section>
 
+      {/* Activity Logs Section */}
       <section className="p-6 bg-white rounded-xl shadow-lg">
   <h2 className="text-2xl font-semibold mb-4 text-gray-700 border-b pb-2">User Activity Logs</h2>
   
@@ -439,6 +484,7 @@ function AdminView() {
       </tbody>
     </table>
   </div>
+  
   <div className="mt-4 flex items-center justify-between">
       <p className="text-sm text-gray-700">
           Page {logPagination.currentPage} of {logPagination.totalPages} ({logPagination.totalLogs} total logs)
@@ -464,4 +510,5 @@ function AdminView() {
     </div>
   );
 }
+
 export default AdminView;

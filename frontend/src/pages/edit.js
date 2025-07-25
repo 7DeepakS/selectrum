@@ -1,4 +1,3 @@
-// backend/routes/events.js
 const express = require('express');
 const router = express.Router();
 const mongoose = require('mongoose');
@@ -7,13 +6,32 @@ const Event = require('../models/Event');
 const User = require('../models/User');
 const ActivityLog = require('../models/ActivityLog');
 const { authMiddleware, authorizeRoles } = require('../middleware/authMiddleware');
+
 const csv = require('csv-parser');
 const stream = require('stream');
 
 // --- Multer Config ---
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype === 'text/csv' || file.originalname.endsWith('.csv')) {
+      cb(null, true);
+    } else {
+      const err = new Error('Invalid file type. Only CSV files are allowed.');
+      err.statusCode = 400;
+      cb(err, false);
+    }
+  }
+});
+
+// --- Helpers ---
 const sendErrorResponse = (res, statusCode, message) => res.status(statusCode).json({ success: false, error: message });
-const escapeCsvField = (field) => { if (field === null || typeof field === 'undefined') return ''; const s = String(field); return s.includes(',') || s.includes('"') || s.includes('\n') ? `"${s.replace(/"/g, '""')}"` : s; };
+const escapeCsvField = (field) => {
+  if (field === null || typeof field === 'undefined') return '';
+  const stringField = String(field);
+  return stringField.includes(',') || stringField.includes('"') || stringField.includes('\n') ? `"${stringField.replace(/"/g, '""')}"` : stringField;
+};
 
 // =========================================================================
 // --- STUDENT-FACING ROUTES ---
@@ -44,37 +62,44 @@ router.post('/:eventId/courses/:courseId/slots/:slotNumericId/enroll', authMiddl
     const { eventId, courseId, slotNumericId } = req.params;
     const student = await User.findById(req.user.id);
     if (!student) return sendErrorResponse(res, 404, 'Student not found.');
+    
     const event = await Event.findById(eventId);
     if (!event) return sendErrorResponse(res, 404, 'Event not found.');
-    if (!event.isOpen) return sendErrorResponse(res, 400, 'Event is closed.');
+    if (!event.isOpen) return sendErrorResponse(res, 400, 'Event is closed for enrollment.');
 
     if ((student.enrollments || []).some(e => e.eventId.toString() === eventId)) {
       return sendErrorResponse(res, 400, 'You are already enrolled in a course for this event.');
     }
+    
     const courseToEnroll = (event.courses || []).find(c => c._id.equals(courseId));
     if (!courseToEnroll) return sendErrorResponse(res, 404, 'Course not found.');
     const slotToEnroll = (courseToEnroll.slots || []).find(s => s.id === parseInt(slotNumericId, 10));
     if (!slotToEnroll) return sendErrorResponse(res, 404, 'Slot not found.');
+    
     if (!slotToEnroll.isActive) return sendErrorResponse(res, 400, 'This slot is inactive.');
     if ((slotToEnroll.enrolled || []).length >= slotToEnroll.maxCapacity) {
         try { await new ActivityLog({ user: student._id, username: student.username, action: 'ENROLL_FAIL', details: { ip: req.ip, eventName: event.name, courseTitle: courseToEnroll.title, errorMessage: 'Slot is full' } }).save(); } catch (logError) { console.error(logError); }
         return sendErrorResponse(res, 400, 'This slot is full.');
     }
+    
     slotToEnroll.enrolled.push(student._id);
     student.enrollments.push({ eventId: event._id, courseId: courseToEnroll._id, courseTitle: courseToEnroll.title });
     await Promise.all([event.save(), student.save()]);
+    
     try { await new ActivityLog({ user: student._id, username: student.username, action: 'ENROLL_SUCCESS', details: { ip: req.ip, eventName: event.name, courseTitle: courseToEnroll.title } }).save(); } catch (logError) { console.error(logError); }
+    
     res.json({ success: true, message: `Enrolled successfully!` });
   } catch (err) { next(err); }
 });
 
+
 // =========================================================================
-// --- ADMIN-FACING ROUTES ---
+// --- ADMIN-FACING MANAGEMENT & REPORTING ROUTES ---
 // =========================================================================
 
-// --- IMPORTANT: Static GET routes MUST be defined BEFORE parameterized GET routes ---
+// --- STATIC GET ROUTES (MUST BE DEFINED BEFORE PARAMETERIZED ONES) ---
 
-// GET /api/events/all - Gets raw event data for management tables
+// GET /api/events/all
 router.get('/all', authMiddleware, authorizeRoles('admin'), async (req, res, next) => {
     try {
         const events = await Event.find().sort({ createdAt: -1 }).lean();
@@ -87,11 +112,10 @@ router.get('/activity-logs', authMiddleware, authorizeRoles('admin'), async (req
     try {
         const page = parseInt(req.query.page, 10) || 1;
         const limit = parseInt(req.query.limit, 10) || 15;
-        const skip = (page - 1) * limit;
         const filter = {};
         if (req.query.username) { filter.username = { $regex: req.query.username, $options: 'i' }; }
         if (req.query.action) { filter.action = req.query.action; }
-        const logs = await ActivityLog.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit).populate('user', 'name department').lean();
+        const logs = await ActivityLog.find(filter).sort({ createdAt: -1 }).skip((page - 1) * limit).limit(limit).populate('user', 'name department').lean();
         const totalLogs = await ActivityLog.countDocuments(filter);
         res.json({ success: true, data: { logs, currentPage: page, totalPages: Math.ceil(totalLogs / limit), totalLogs } });
     } catch (err) { next(err); }
@@ -108,29 +132,15 @@ router.get('/activity-logs/download', authMiddleware, authorizeRoles('admin'), a
             res.setHeader('Content-Type', 'text/csv; charset=utf-8').setHeader('Content-Disposition', 'attachment; filename="activity_logs_empty.csv"');
             return res.status(200).send("Timestamp,Action,Username,User Name,User Department,Details\r\nNo data.");
         }
+        const csvRows = [Object.keys(logs[0].details?._doc||{}).join(',')];
         const headers = ['Timestamp','Action','Username','User Name','User Department','Details'];
-        const csvString = [ headers.join(','), ...logs.map(log => {
-            const d=[];
-            if(log.details){if(log.details.ip)d.push(`IP: ${log.details.ip}`);if(log.details.eventName)d.push(`Event: ${log.details.eventName}`);if(log.details.courseTitle)d.push(`Course: ${log.details.courseTitle}`);if(log.details.errorMessage)d.push(`Error: ${log.details.errorMessage}`);}
-            return [new Date(log.createdAt).toLocaleString(),log.action,log.username,log.user?log.user.name:'N/A',log.user?(log.user.department||'N/A'):'N/A',d.join('; ')].map(escapeCsvField).join(',');
-        })].join('\r\n');
+        const csvString = [headers.join(','),...logs.map(log=>{const d=[];if(log.details){if(log.details.ip)d.push(`IP: ${log.details.ip}`);if(log.details.eventName)d.push(`Event: ${log.details.eventName}`);if(log.details.courseTitle)d.push(`Course: ${log.details.courseTitle}`);if(log.details.errorMessage)d.push(`Error: ${log.details.errorMessage}`);} return [new Date(log.createdAt).toLocaleString(),log.action,log.username,log.user?log.user.name:'N/A',log.user?(log.user.department||'N/A'):'N/A',d.join('; ')].map(escapeCsvField).join(',');})].join('\r\n');
         res.setHeader('Content-Type', 'text/csv; charset=utf-8').setHeader('Content-Disposition', 'attachment; filename="activity_logs.csv"');
         res.status(200).send(csvString);
     } catch (err) { next(err); }
 });
 
-// GET /api/events/enrollment-summary/by-department (for distinct depts dropdown)
-router.get('/enrollment-summary/by-department', authMiddleware, authorizeRoles('admin'), async (req, res, next) => {
-    try {
-      const summary = await Event.aggregate([ { $unwind: "$courses" }, { $unwind: "$courses.slots" }, { $unwind: "$courses.slots.enrolled" }, { $lookup: { from: "users", localField: "courses.slots.enrolled", foreignField: "_id", as: "userInfo" } }, { $unwind: "$userInfo" }, { $group: { _id: { $ifNull: ["$userInfo.department", "N/A"] }, count: { $sum: 1 } } }, { $project: { _id: 0, department: "$_id", totalEnrollments: "$count" } }]);
-      const distinctDeptsFromUsers = await User.distinct("department", { department: { $ne: null, $ne: "" } });
-      const deptsWithEnrollments = new Set(summary.map(s => s.department));
-      const finalDistinctDepts = [...new Set([...distinctDeptsFromUsers, ...deptsWithEnrollments])].filter(d => d != null).sort();
-      res.json({ success: true, data: { summary, distinctDepartments: finalDistinctDepts } });
-    } catch (err) { next(err); }
-});
-
-// --- DYNAMIC (PARAMETERIZED) GET ROUTES ---
+// --- PARAMETERIZED GET ROUTES ---
 
 // GET /api/events/:eventId
 router.get('/:eventId', authMiddleware, authorizeRoles('admin'), async (req, res, next) => {
@@ -158,8 +168,7 @@ router.get('/:eventId/enrollment-status-by-department', authMiddleware, authoriz
     } catch (err) { next(err); }
 });
 
-// --- POST, PUT, DELETE Routes ---
-
+// POST /api/events - Create a new Event
 router.post('/', authMiddleware, authorizeRoles('admin'), async (req, res, next) => {
     try {
         const { name } = req.body;
@@ -171,46 +180,135 @@ router.post('/', authMiddleware, authorizeRoles('admin'), async (req, res, next)
     } catch (err) { next(err); }
 });
 
+// PUT /api/events/:eventId - Update an Event's name or status
 router.put('/:eventId', authMiddleware, authorizeRoles('admin'), async (req, res, next) => {
     try {
         const { name, isOpen } = req.body;
-        if (!mongoose.Types.ObjectId.isValid(req.params.eventId)) return sendErrorResponse(res, 400, 'Invalid ID.');
+        if (!mongoose.Types.ObjectId.isValid(req.params.eventId)) return sendErrorResponse(res, 400, 'Invalid Event ID.');
         const updateFields = {};
-        if (name !== undefined) updateFields.name = name.trim();
-        if (isOpen !== undefined) updateFields.isOpen = isOpen;
-        if (Object.keys(updateFields).length === 0) return sendErrorResponse(res, 400, 'No fields to update.');
-        const updatedEvent = await Event.findByIdAndUpdate(req.params.eventId, updateFields, {new:true, runValidators:true});
+        if (name !== undefined) {
+            if (!name?.trim()) return sendErrorResponse(res, 400, 'Event name cannot be empty.');
+            updateFields.name = name.trim();
+        }
+        if (isOpen !== undefined) {
+            if (typeof isOpen !== 'boolean') return sendErrorResponse(res, 400, 'isOpen must be a boolean.');
+            updateFields.isOpen = isOpen;
+        }
+        if (Object.keys(updateFields).length === 0) return sendErrorResponse(res, 400, 'No fields to update provided.');
+        
+        const updatedEvent = await Event.findByIdAndUpdate(req.params.eventId, updateFields, { new: true, runValidators: true });
         if (!updatedEvent) return sendErrorResponse(res, 404, 'Event not found.');
-        res.json({success:true, message:'Event updated.', data: updatedEvent});
+        res.json({ success: true, message: 'Event updated successfully.', data: updatedEvent });
     } catch (err) { next(err); }
 });
 
+// DELETE /api/events/:eventId - Delete an entire Event
 router.delete('/:eventId', authMiddleware, authorizeRoles('admin'), async (req, res, next) => {
     try {
         const { eventId } = req.params;
-        if (!mongoose.Types.ObjectId.isValid(eventId)) return sendErrorResponse(res, 400, 'Invalid ID.');
+        if (!mongoose.Types.ObjectId.isValid(eventId)) return sendErrorResponse(res, 400, 'Invalid Event ID.');
         const eventToDelete = await Event.findByIdAndDelete(eventId);
         if (!eventToDelete) return sendErrorResponse(res, 404, 'Event not found.');
-        await User.updateMany({"enrollments.eventId": eventId}, {$pull: {enrollments: {eventId: eventId}}});
-        res.json({ success: true, message: `Event "${eventToDelete.name}" was deleted.` });
+        await User.updateMany({ "enrollments.eventId": eventId }, { $pull: { enrollments: { eventId: eventId } } });
+        res.json({ success: true, message: `Event "${eventToDelete.name}" was permanently deleted.` });
     } catch (err) { next(err); }
 });
 
+// POST /api/events/:eventId/courses - Add a new course to an event
 router.post('/:eventId/courses', authMiddleware, authorizeRoles('admin'), async (req, res, next) => {
     try {
         const { eventId } = req.params;
         const { title, description, slots } = req.body;
         if (!title?.trim()) return sendErrorResponse(res, 400, 'Course title is required.');
         if (!slots || !Array.isArray(slots) || slots.length === 0) return sendErrorResponse(res, 400, 'At least one slot is required.');
+        
         const event = await Event.findById(eventId);
         if (!event) return sendErrorResponse(res, 404, 'Event not found.');
-        const newCourse = { _id: new mongoose.Types.ObjectId(), title: title.trim(), description: description||'', slots: (slots||[]).map((s,i)=>({...s, _id: new mongoose.Types.ObjectId(), id: s.id||i+1}))};
+
+        const newCourse = {
+            _id: new mongoose.Types.ObjectId(), title: title.trim(), description: description || '',
+            slots: slots.map((s, i) => ({ ...s, _id: new mongoose.Types.ObjectId(), id: s.id || i + 1 })),
+        };
         event.courses.push(newCourse);
         await event.save();
-        res.status(201).json({success:true, message:'Course added.', data:newCourse});
-    } catch(err){next(err);}
+        res.status(201).json({ success: true, message: 'Course added successfully.', data: newCourse });
+    } catch (err) { next(err); }
 });
 
+router.put('/:eventId/courses/:courseId', authMiddleware, authorizeRoles('admin'), async (req, res, next) => {
+    try {
+        const { eventId, courseId } = req.params;
+        const { title, description, slots } = req.body; // The new data from the form
+
+        if (!title?.trim()) return sendErrorResponse(res, 400, 'Course title is required.');
+        if (!slots || !Array.isArray(slots) || slots.length === 0) {
+            return sendErrorResponse(res, 400, 'Course must have at least one slot.');
+        }
+
+        const event = await Event.findById(eventId);
+        if (!event) return sendErrorResponse(res, 404, 'Event not found.');
+
+        // Find the specific course within the event's courses array
+        const courseToUpdate = event.courses.id(courseId);
+        if (!courseToUpdate) return sendErrorResponse(res, 404, 'Course not found within this event.');
+        
+        // Update the fields
+        courseToUpdate.title = title.trim();
+        courseToUpdate.description = description || '';
+        // Completely replace the old slots with the new slots array from the frontend
+        // We generate new ObjectIDs for each slot to ensure they are fresh.
+        courseToUpdate.slots = slots.map((s, i) => ({
+            _id: new mongoose.Types.ObjectId(),
+            id: s.id || i + 1, // Keep original numeric ID if it exists
+            time: new Date(s.time),
+            maxCapacity: parseInt(s.maxCapacity, 10),
+            isActive: s.isActive !== undefined ? s.isActive : true,
+            // IMPORTANT: We must preserve existing enrollments if a slot's ID is kept.
+            // This is a complex operation. For simplicity now, we assume editing slots clears them.
+            // A more advanced implementation would match old slots to new ones and carry over enrollments.
+            enrolled: [] 
+        }));
+
+        await event.save();
+
+        // Also update the courseTitle in any user's enrollment record
+        await User.updateMany(
+            { "enrollments.courseId": courseId },
+            { "$set": { "enrollments.$.courseTitle": title.trim() } }
+        );
+
+        res.json({ success: true, message: 'Course updated successfully.', data: courseToUpdate });
+
+    } catch(err) {
+        console.error(`Error updating course ${req.params.courseId}:`, err.stack);
+        next(err);
+    }
+});
+
+// DELETE /api/events/:eventId/courses/:courseId - Delete a course from an event
+router.delete('/:eventId/courses/:courseId', authMiddleware, authorizeRoles('admin'), async (req, res, next) => {
+    try {
+        const { eventId, courseId } = req.params;
+        const event = await Event.findById(eventId);
+        if (!event) return sendErrorResponse(res, 404, 'Event not found.');
+        
+        const courseToDelete = (event.courses || []).find(c => c._id.equals(courseId));
+        if (!courseToDelete) return sendErrorResponse(res, 404, 'Course not found in this event.');
+        
+        const studentIdsInCourse = new Set();
+        (courseToDelete.slots || []).forEach(s => s.enrolled.forEach(id => studentIdsInCourse.add(id)));
+        if (studentIdsInCourse.size > 0) {
+            await User.updateMany({ _id: { $in: Array.from(studentIdsInCourse) } }, { $pull: { enrollments: { courseId: courseToDelete._id } } });
+        }
+        
+        event.courses.pull({ _id: courseId });
+        await event.save();
+        
+        res.json({ success: true, message: 'Course deleted and associated enrollments removed.' });
+    } catch (err) { next(err); }
+});
+
+// PUT /api/events/:eventId/courses/:courseId (The missing route)
 router.put('/:eventId/courses/:courseId', authMiddleware, authorizeRoles('admin'), async (req, res, next) => {
     try {
         const { eventId, courseId } = req.params;
@@ -221,33 +319,16 @@ router.put('/:eventId/courses/:courseId', authMiddleware, authorizeRoles('admin'
         const event = await Event.findById(eventId);
         if (!event) return sendErrorResponse(res, 404, 'Event not found.');
         const course = event.courses.id(courseId);
-        if (!course) return sendErrorResponse(res, 404, 'Course not found.');
+        if (!course) return sendErrorResponse(res, 404, 'Course not found in this event.');
         
         course.title = title.trim();
         course.description = description || '';
-        course.slots = slots.map((s, i) => ({ ...s, _id: s._id || new mongoose.Types.ObjectId(), id: s.id || i + 1, enrolled:[] }));
+        course.slots = slots.map((s, i) => ({ ...s, _id: s._id || new mongoose.Types.ObjectId(), id: s.id || i + 1, enrolled: [] }));
         
         await event.save();
         await User.updateMany({ "enrollments.courseId": courseId }, { "$set": { "enrollments.$.courseTitle": title.trim() } });
-
         res.json({ success: true, message: 'Course updated successfully.', data: course });
     } catch(err) { next(err); }
-});
-
-router.delete('/:eventId/courses/:courseId', authMiddleware, authorizeRoles('admin'), async (req, res, next) => {
-    try {
-        const { eventId, courseId } = req.params;
-        const event = await Event.findById(eventId);
-        if (!event) return sendErrorResponse(res, 404, 'Event not found.');
-        const courseToDelete = (event.courses||[]).find(c=>c._id.equals(courseId));
-        if(!courseToDelete) return sendErrorResponse(res, 404, 'Course not found.');
-        const studentIdsInCourse = new Set();
-        (courseToDelete.slots||[]).forEach(s => s.enrolled.forEach(id => studentIdsInCourse.add(id)));
-        if(studentIdsInCourse.size>0) await User.updateMany({_id:{$in:Array.from(studentIdsInCourse)}},{$pull:{enrollments:{courseId:courseToDelete._id}}});
-        event.courses.pull({_id:courseId});
-        await event.save();
-        res.json({success:true, message:'Course deleted.'});
-    } catch(err){next(err);}
 });
 
 router.post('/upload-students', authMiddleware, authorizeRoles('admin'), upload.single('csv'), async (req, res, next) => { 
