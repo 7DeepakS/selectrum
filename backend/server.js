@@ -1,3 +1,4 @@
+// backend/server.js
 require('dotenv').config();
 
 const express = require('express');
@@ -5,12 +6,14 @@ const mongoose = require('mongoose');
 const cors = require('cors');
 const helmet = require('helmet');
 const hpp = require('hpp');
+const multer = require('multer');
 
 // --- Route Imports ---
 const authRoutes = require('./routes/auth');
 const eventRoutes = require('./routes/events');
 const studentRoutes = require('./routes/students');
 const userRoutes = require('./routes/userRoutes');
+const courseCatalogRoutes = require('./routes/courseCatalogRoutes');
 
 // --- Initializations ---
 const app = express();
@@ -20,19 +23,16 @@ const nodeEnv = process.env.NODE_ENV || 'development';
 // --- Database Connection ---
 const connectDB = async () => {
   try {
-    // Mongoose 6+ has good defaults, so explicit options are often not needed.
     await mongoose.connect(process.env.MONGODB_URI);
     console.log(`🚀 MongoDB Atlas connected successfully in ${nodeEnv} mode.`);
   } catch (err) {
     console.error('🔴 MongoDB connection error:', err.message);
-    process.exit(1); // Exit process with failure
+    process.exit(1);
   }
 };
 connectDB();
 
 // --- Core Middleware ---
-
-// CORS Configuration: Controls which frontends can access this API
 const allowedOrigins = (process.env.CORS_ORIGIN || 'http://localhost:3000,http://192.168.1.6:3000').split(',');
 app.use(cors({
   origin: (origin, callback) => {
@@ -44,46 +44,51 @@ app.use(cors({
   },
   credentials: true,
 }));
-
-// Security Middleware
 app.use(helmet());
 app.use(hpp());
-
-// Body Parsers
 app.use(express.json({ limit: '10kb' }));
-// Removed urlencoded as it's less common for JSON-based APIs
+
+// --- Multer Instance for File Uploads ---
+// We define it here to pass it to the necessary routes
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype === 'text/csv' || file.originalname.endsWith('.csv')) {
+      cb(null, true);
+    } else {
+      const err = new Error('Invalid file type. Only CSV files are allowed.');
+      err.statusCode = 400;
+      cb(err, false);
+    }
+  }
+});
 
 // --- API Routes ---
-// Note: Multer is no longer applied globally to the /api/events route here.
-// It will be applied specifically to the upload route within events.js
 app.use('/api/auth', authRoutes);
-app.use('/api/events', eventRoutes); // <-- CORRECTED: multer removed from here
+app.use('/api/events', eventRoutes);
 app.use('/api/students', studentRoutes);
 app.use('/api/users', userRoutes);
+app.use('/api/catalog/courses', courseCatalogRoutes);
 
 // Health check route
 app.get('/', (req, res) => {
   res.json({ message: "Welcome to the Selectrum API! We are live." });
 });
 
-
 // --- Error Handling Middleware ---
-// 404 Not Found Handler (catches unhandled requests)
 app.use((req, res, next) => {
   const error = new Error(`Route not found: ${req.originalUrl}`);
   error.statusCode = 404;
-  next(error); // Pass error to the global error handler
+  next(error);
 });
 
-// Global Error Handler (catches all errors)
-const multer = require('multer'); // Keep multer here for `instanceof multer.MulterError` check
 app.use((err, req, res, next) => {
   console.error("Global Error Handler:", err.name, err.message);
 
   let statusCode = err.statusCode || 500;
   let message = err.message || 'Internal Server Error';
 
-  // Customize messages for common errors
   if (err.name === 'CastError') { statusCode = 400; message = `Invalid format for resource ID: ${err.value}`; }
   if (err.name === 'ValidationError') { statusCode = 400; message = Object.values(err.errors).map(val => val.message).join('. '); }
   if (err.code === 11000) { statusCode = 400; const field = Object.keys(err.keyValue)[0]; message = `The value for "${field}" must be unique.`; }

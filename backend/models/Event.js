@@ -1,39 +1,39 @@
-// models/Event.js
 const mongoose = require('mongoose');
 
-// Slot sub-schema
 const slotSchema = new mongoose.Schema({
-  id: { type: Number, required: true }, // Maintained for consistency with original, consider using _id
+  id: { type: Number, required: true },
   time: { type: Date, required: true },
   maxCapacity: { type: Number, required: true, min: 1 },
   enrolled: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
   isActive: { type: Boolean, default: true },
-}, { _id: true }); // Ensure subdocuments get an _id
+}, { _id: true });
 
-// Course sub-schema
-const courseSchema = new mongoose.Schema({
-  title: { type: String, required: true, trim: true, maxlength: 200 },
-  description: { type: String, trim: true, maxlength: 1000 },
+const courseOfferingSchema = new mongoose.Schema({
+  course: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Course',
+      required: true
+  },
   slots: [slotSchema],
 });
 
-// Main Event schema
 const eventSchema = new mongoose.Schema({
-  name: {
-    type: String,
-    required: true,
-    trim: true,
-    unique: true, // This creates the index for event name
-    maxlength: 150
-  },
+  name: { type: String, required: true, trim: true, unique: true },
   isOpen: { type: Boolean, default: false },
-  courses: [courseSchema],
+  maxCoursesPerStudent: { type: Number, default: 1, min: 1 },
+  courses: [courseOfferingSchema],
+  
+  // --- NEW FIELDS ADDED ---
+  allowedDepartments: {
+    type: [String],
+    default: [],
+  },
+  isViewOnly: {
+    type: Boolean,
+    default: false,
+  },
 }, {
   timestamps: true,
 });
-
-// You can keep this if you specifically want an index on course titles
-// for faster searching/sorting by course titles within events.
-eventSchema.index({ "courses.title": 1 });
 
 module.exports = mongoose.model('Event', eventSchema);

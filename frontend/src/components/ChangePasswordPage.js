@@ -1,37 +1,31 @@
-// src/components/ChangePasswordPage.js
-import React, { useState, useContext, useEffect } from 'react';
-import { useNavigate, Navigate } from 'react-router-dom';
-import { AuthContext } from '../context/AuthContext';
+// src/pages/ChangePasswordPage.js
+import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
 
 function ChangePasswordPage() {
-  const { user, updateUserContext, logout, isAuthenticated, loading: authLoading } = useContext(AuthContext);
+  // Get the correct 'updateUser' function and the 'user' object from our custom hook
+  const { user, updateUser } = useAuth();
   const navigate = useNavigate();
-
-  const [formData, setFormData] = useState({
+  
+  const [passwords, setPasswords] = useState({
     currentPassword: '',
     newPassword: '',
     confirmNewPassword: '',
   });
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
-  const [pageLoading, setPageLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
 
-  // Redirect if not authenticated or if password change is no longer required
-  useEffect(() => {
-    if (!authLoading && !isAuthenticated) {
-      console.log('CHANGE_PW_PAGE: Not authenticated, redirecting to login.');
-      navigate('/');
-    } else if (!authLoading && user && !user.requiresPasswordChange) {
-      // If user is loaded and doesn't need a change, send to dashboard
-      // This handles cases like bookmarking/reloading the change password page after already changing it
-      console.log('CHANGE_PW_PAGE: Password change not required, redirecting to dashboard.');
-      navigate(user.role === 'admin' ? '/admin' : '/student', { replace: true });
-    }
-  }, [user, isAuthenticated, authLoading, navigate]);
+  // This flag makes the logic clearer
+  const isForcedChange = user?.requiresPasswordChange;
 
-  const handleChange = (e) => {
-    setFormData({ ...formData, [e.target.name]: e.target.value });
+  const handleInputChange = (e) => {
+    const { name, value } = e.target;
+    setPasswords(prev => ({ ...prev, [name]: value }));
+    // Clear errors when user types
+    if (error) setError('');
   };
 
   const handleSubmit = async (e) => {
@@ -39,141 +33,108 @@ function ChangePasswordPage() {
     setError('');
     setSuccess('');
 
-    if (formData.newPassword !== formData.confirmNewPassword) {
-      setError('New passwords do not match.');
-      return;
+    if (passwords.newPassword !== passwords.confirmNewPassword) {
+      return setError('New passwords do not match.');
     }
-    if (formData.newPassword.length < 6) { // Match backend validation
-      setError('New password must be at least 6 characters long.');
-      return;
+    if (passwords.newPassword.length < 6) {
+      return setError('Password must be at least 6 characters long.');
+    }
+    if (!isForcedChange && !passwords.currentPassword) {
+        return setError('Current password is required.');
     }
 
-    setPageLoading(true);
+    setIsLoading(true);
     try {
       const payload = {
-        newPassword: formData.newPassword,
-        confirmNewPassword: formData.confirmNewPassword,
+        newPassword: passwords.newPassword,
+        // The backend expects the confirm password field for validation
+        confirmNewPassword: passwords.confirmNewPassword, 
       };
-
-      // Only send currentPassword if the user doesn't *require* a change (i.e., it's a voluntary change)
-      // OR if you always want to force them to enter it.
-      // The backend logic handles if currentPassword is empty & requiresPasswordChange is true.
-      // For simplicity here, we'll send it if user.requiresPasswordChange is false.
-      if (user && !user.requiresPasswordChange && formData.currentPassword) {
-        payload.currentPassword = formData.currentPassword;
-      } else if (user && !user.requiresPasswordChange && !formData.currentPassword) {
-        setError('Current password is required for a voluntary password change.');
-        setPageLoading(false);
-        return;
+      // Only include currentPassword if it's not a forced change
+      if (!isForcedChange) {
+        payload.currentPassword = passwords.currentPassword;
       }
+      
+      const response = await api.post('users/change-password', payload);
+      
+      setSuccess('Password changed successfully! Redirecting...');
+      
+      // Update the user in our global context and localStorage
+      updateUser(response.data.user);
 
+      // Redirect to the appropriate dashboard after 2 seconds
+      setTimeout(() => {
+        const redirectTo = user.role === 'admin' ? '/admin' : '/student-dashboard';
+        navigate(redirectTo, { replace: true });
+      }, 2000);
 
-      const response = await api.post('/users/change-password', payload);
-
-      if (response.data.success) {
-        setSuccess('Password changed successfully! Redirecting to your dashboard...');
-        updateUserContext(response.data.user); // Update user (requiresPasswordChange will be false)
-        
-        setTimeout(() => {
-          navigate(response.data.user.role === 'admin' ? '/admin' : '/student');
-        }, 2000);
-      } else {
-        setError(response.data.error || 'Failed to change password.');
-      }
     } catch (err) {
-      console.error("Change password API error object:", err);
-      if (err.isAxiosError && err.response) {
-        setError(err.response.data.error || `Server error: ${err.response.status}`);
-      } else {
-        setError(err.error || err.message || 'An error occurred while changing password.');
-      }
+      console.error("Change password API error:", err);
+      setError(err.error || 'An unexpected error occurred. Please try again.');
     } finally {
-      setPageLoading(false);
+      setIsLoading(false);
     }
   };
-  
-  if (authLoading || (!user && isAuthenticated)) { // If auth is loading, or authenticated but user object not yet set
-    return <div className="p-6 text-center text-lg">Loading...</div>;
-  }
-
-  // This check handles the case where the user might already be redirected by useEffect
-  // but the component tries to render before the redirect completes.
-  if (!isAuthenticated && !authLoading) return <Navigate to="/" replace />;
-  if (user && !user.requiresPasswordChange && !authLoading) return <Navigate to={user.role === 'admin' ? '/admin' : '/student'} replace />;
-
 
   return (
-    <div className="flex items-center justify-center min-h-screen bg-gradient-to-r from-teal-400 via-blue-500 to-indigo-600 p-4">
-      <div className="p-8 bg-white rounded-xl shadow-2xl w-full max-w-md">
-        <h2 className="text-3xl font-bold mb-6 text-center text-gray-800">
-          {user && user.requiresPasswordChange ? 'Set Your New Password' : 'Change Your Password'}
+    <div className="flex items-center justify-center min-h-screen bg-gray-100">
+      <div className="w-full max-w-md p-8 space-y-6 bg-white rounded-lg shadow-md">
+        <h2 className="text-2xl font-bold text-center text-gray-800">
+          {isForcedChange ? 'Create Your New Password' : 'Change Your Password'}
         </h2>
-
-        {error && <p className="text-red-600 text-center mb-4 p-3 bg-red-100 border border-red-400 rounded-md">{error}</p>}
-        {success && <p className="text-green-600 text-center mb-4 p-3 bg-green-100 border border-green-400 rounded-md">{success}</p>}
-
-        {!success && (
-          <form onSubmit={handleSubmit} className="space-y-6">
-            {/* Only show current password field if it's NOT the initial forced change */}
-            {user && !user.requiresPasswordChange && (
-                 <div>
-                    <label htmlFor="currentPassword" className="block text-sm font-semibold text-gray-700">Current Password</label>
-                    <input
-                        type="password"
-                        name="currentPassword"
-                        id="currentPassword"
-                        value={formData.currentPassword}
-                        onChange={handleChange}
-                        className="mt-1 block w-full px-4 py-3 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition"
-                        required 
-                    />
-                </div>
-            )}
-           
-            <div>
-              <label htmlFor="newPassword" className="block text-sm font-semibold text-gray-700">New Password</label>
-              <input
-                type="password"
-                name="newPassword"
-                id="newPassword"
-                value={formData.newPassword}
-                onChange={handleChange}
-                className="mt-1 block w-full px-4 py-3 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition"
-                required
-                autoComplete="new-password"
-              />
-            </div>
-            <div>
-              <label htmlFor="confirmNewPassword" className="block text-sm font-semibold text-gray-700">Confirm New Password</label>
-              <input
-                type="password"
-                name="confirmNewPassword"
-                id="confirmNewPassword"
-                value={formData.confirmNewPassword}
-                onChange={handleChange}
-                className="mt-1 block w-full px-4 py-3 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition"
-                required
-                autoComplete="new-password"
-              />
-            </div>
-            <button
-              type="submit"
-              disabled={pageLoading}
-              className="w-full p-3 rounded-lg text-white font-semibold bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-4 focus:ring-indigo-300 transition duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {pageLoading ? 'Updating...' : 'Update Password'}
-            </button>
-          </form>
+        
+        {isForcedChange && (
+            <p className="text-center text-sm text-yellow-700 bg-yellow-100 p-3 rounded-md border border-yellow-200">
+                For security, you must set a new password before proceeding.
+            </p>
         )}
-        {!success && (
-             <button
-                onClick={() => logout()}
-                className="mt-6 w-full text-center text-sm text-gray-600 hover:text-indigo-600 hover:underline"
-                disabled={pageLoading}
-            >
-                Or, Logout
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          {!isForcedChange && (
+              <div>
+                <label className="block text-sm font-medium">Current Password</label>
+                <input 
+                  type="password" 
+                  name="currentPassword" 
+                  value={passwords.currentPassword} 
+                  onChange={handleInputChange} 
+                  required 
+                  className="w-full p-2 mt-1 border rounded-md" 
+                />
+              </div>
+          )}
+          <div>
+            <label className="block text-sm font-medium">New Password</label>
+            <input 
+              type="password" 
+              name="newPassword" 
+              value={passwords.newPassword} 
+              onChange={handleInputChange} 
+              required 
+              className="w-full p-2 mt-1 border rounded-md" 
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium">Confirm New Password</label>
+            <input 
+              type="password" 
+              name="confirmNewPassword" 
+              value={passwords.confirmNewPassword} 
+              onChange={handleInputChange} 
+              required 
+              className="w-full p-2 mt-1 border rounded-md" 
+            />
+          </div>
+
+          {error && <p className="text-sm text-red-600 text-center">{error}</p>}
+          {success && <p className="text-sm text-green-600 text-center animate-pulse">{success}</p>}
+          
+          <div>
+            <button type="submit" disabled={isLoading} className="w-full p-3 text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 disabled:opacity-50">
+              {isLoading ? 'Updating...' : 'Update Password'}
             </button>
-        )}
+          </div>
+        </form>
       </div>
     </div>
   );

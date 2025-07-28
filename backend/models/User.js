@@ -6,7 +6,7 @@ const userSchema = new mongoose.Schema({
   username: {
     type: String,
     required: [true, 'Username is required'],
-    unique: true, // This creates the index for username
+    unique: true,
     trim: true,
     lowercase: true,
     match: [/^[a-zA-Z0-9_.-]+$/, 'Username can only contain letters, numbers, underscore, dot, or hyphen'],
@@ -36,21 +36,29 @@ const userSchema = new mongoose.Schema({
     trim: true,
     maxlength: [100, 'Department cannot exceed 100 characters'],
   },
-  selectedEvent: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Event',
-    default: null,
-  },
-  requiresPasswordChange: { // <--- NEW FIELD
+  requiresPasswordChange: {
     type: Boolean,
-    default: true, // Default to true for all newly registered users
-  }
-}, {
-  timestamps: true,
-});
+    default: true,
+  },
 
+  // ======================= THE CHANGE IS HERE =======================
+  // The old 'selectedEvent' field is removed.
+  // This 'enrollments' array is the new, more flexible way to track selections.
+  enrollments: [{
+        _id: false,
+        eventId: { type: mongoose.Schema.Types.ObjectId, ref: 'Event', required: true },
+        // This now refers to the MASTER Course ID from the Course Catalog.
+        courseId: { type: mongoose.Schema.Types.ObjectId, ref: 'Course', required: true }, 
+        courseTitle: { type: String, required: true }, // Keep this for convenience
+        enrolledAt: { type: Date, default: Date.now }
+    }]
+}, { timestamps: true });
+
+// Create indexes for fields that are frequently queried
 userSchema.index({ role: 1 });
+userSchema.index({ "enrollments.eventId": 1 }); // Indexing the eventId within the array
 
+// Hash password before saving the user document
 userSchema.pre('save', async function (next) {
   if (!this.isModified('password')) {
     return next();
@@ -64,8 +72,9 @@ userSchema.pre('save', async function (next) {
   }
 });
 
+// Method to compare entered password with hashed password
 userSchema.methods.comparePassword = async function (candidatePassword) {
-  return bcrypt.compare(candidatePassword, this.password);
+  return await bcrypt.compare(candidatePassword, this.password);
 };
 
 module.exports = mongoose.model('User', userSchema);
