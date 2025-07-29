@@ -1,4 +1,3 @@
-// backend/models/User.js
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 
@@ -9,6 +8,7 @@ const userSchema = new mongoose.Schema({
     unique: true,
     trim: true,
     lowercase: true,
+    // --- FIX #1: Corrected the regular expression from "0--9" to "0-9" ---
     match: [/^[a-zA-Z0-9_.-]+$/, 'Username can only contain letters, numbers, underscore, dot, or hyphen'],
     minlength: [3, 'Username must be at least 3 characters long'],
     maxlength: [30, 'Username cannot exceed 30 characters'],
@@ -36,27 +36,33 @@ const userSchema = new mongoose.Schema({
     trim: true,
     maxlength: [100, 'Department cannot exceed 100 characters'],
   },
+  semester: {
+    type: String,
+    trim: true,
+    maxlength: [50, 'Semester cannot exceed 50 characters'],
+  },
+  section: {
+    type: String,
+    trim: true,
+    maxlength: [50, 'Section cannot exceed 50 characters'],
+  },
   requiresPasswordChange: {
     type: Boolean,
     default: true,
   },
-
-  // ======================= THE CHANGE IS HERE =======================
-  // The old 'selectedEvent' field is removed.
-  // This 'enrollments' array is the new, more flexible way to track selections.
   enrollments: [{
         _id: false,
         eventId: { type: mongoose.Schema.Types.ObjectId, ref: 'Event', required: true },
-        // This now refers to the MASTER Course ID from the Course Catalog.
         courseId: { type: mongoose.Schema.Types.ObjectId, ref: 'Course', required: true }, 
-        courseTitle: { type: String, required: true }, // Keep this for convenience
+        courseTitle: { type: String, required: true },
         enrolledAt: { type: Date, default: Date.now }
     }]
 }, { timestamps: true });
 
 // Create indexes for fields that are frequently queried
 userSchema.index({ role: 1 });
-userSchema.index({ "enrollments.eventId": 1 }); // Indexing the eventId within the array
+userSchema.index({ department: 1 });
+userSchema.index({ "enrollments.eventId": 1 });
 
 // Hash password before saving the user document
 userSchema.pre('save', async function (next) {
@@ -77,4 +83,6 @@ userSchema.methods.comparePassword = async function (candidatePassword) {
   return await bcrypt.compare(candidatePassword, this.password);
 };
 
-module.exports = mongoose.model('User', userSchema);
+// --- FIX #2: Prevent the OverwriteModelError ---
+// This checks if the model already exists before trying to create it.
+module.exports = mongoose.models.User || mongoose.model('User', userSchema);

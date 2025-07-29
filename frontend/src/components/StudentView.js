@@ -3,7 +3,7 @@ import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { CheckCircle, XCircle, RefreshCw, Lock, Eye } from 'react-feather';
 
-// ----- Reusable Modal Component -----
+// ----- Reusable Modal Component (Unchanged) -----
 const ConfirmationModal = ({ isOpen, onClose, onConfirm, title, children, confirmText = 'Confirm', closeText = 'Cancel', isInfoOnly = false }) => {
   if (!isOpen) return null;
   return (
@@ -171,19 +171,26 @@ function StudentView() {
         const processedCourses = (event.courses || [])
           .map(offering => {
             if (!offering.masterCourse) return null;
-            const isDepartmentAllowed = !event.allowedDepartments || event.allowedDepartments.length === 0 || (user.department && event.allowedDepartments.includes(user.department));
+            
+            // --- UPDATED: Full Restriction Checks ---
+            const isDeptAllowed = !event.allowedDepartments || event.allowedDepartments.length === 0 || (user.department && event.allowedDepartments.includes(user.department));
+            const isSemesterAllowed = !event.allowedSemesters || event.allowedSemesters.length === 0 || (user.semester && event.allowedSemesters.includes(user.semester));
+            const isSectionAllowed = !event.allowedSections || event.allowedSections.length === 0 || (user.section && event.allowedSections.includes(user.section));
+            const allRestrictionsMet = isDeptAllowed && isSemesterAllowed && isSectionAllowed;
+
             const masterCourseId = String(offering.masterCourse._id);
             const isEnrolledInThisOffering = courseIdsInThisEvent.has(masterCourseId);
             const hasTakenThisCourseBefore = allTakenCourseIds.has(masterCourseId);
             const unmetPrerequisites = (offering.masterCourse.prerequisites || []).filter(p => !allTakenCourseIds.has(String(p._id))).map(p => p.title);
             const prereqsMet = unmetPrerequisites.length === 0;
+
             return {
               ...offering,
               isEnrolledInThisOffering,
               hasTakenThisCourseBefore,
               prereqsMet,
               unmetPrerequisites,
-              isDepartmentAllowed,
+              allRestrictionsMet, // <-- Pass this new composite flag to the UI
               slots: (offering.slots || []).map(slot => ({
                 ...slot,
                 availableCapacity: slot.maxCapacity - (slot.enrolled || []).length,
@@ -200,7 +207,7 @@ function StudentView() {
           enrolledCourseTitles: enrollmentsInThisEvent.map(e => e.courseTitle).filter(Boolean),
         };
       });
-  }, [events, userEnrollments, user.department]);
+  }, [events, userEnrollments, user]); // <-- Add full 'user' to dependency array
 
   if (loading) {
     return (
@@ -319,10 +326,9 @@ function StudentView() {
                             buttonState = { text: '✓ Enrolled', disabled: true, className: 'bg-green-600 cursor-default' };
                         } else if (event.isViewOnly) {
                             buttonState = { text: 'View Only', disabled: true, className: 'bg-gray-400 cursor-not-allowed' };
-                        } else if (!offering.isDepartmentAllowed) {
-                            buttonState = { text: 'Dept. Restricted', disabled: true, className: 'bg-gray-400 cursor-not-allowed' };
+                        } else if (!offering.allRestrictionsMet) {
+                            buttonState = { text: 'Restricted', disabled: true, className: 'bg-gray-400 cursor-not-allowed' };
                         } else if (offering.hasTakenThisCourseBefore) {
-                            // This state is now filtered out before rendering, but the logic remains as a safeguard.
                             buttonState = { text: '✓ Completed', disabled: true, className: 'bg-blue-600 cursor-default' };
                         } else if (event.hasReachedEventLimit) {
                             buttonState = { text: 'Event Limit Reached', disabled: true, className: 'bg-gray-400 cursor-not-allowed' };
@@ -347,10 +353,10 @@ function StudentView() {
                                 </div>
                               )}
 
-                              {!offering.isDepartmentAllowed && !event.isViewOnly && (
+                              {!offering.allRestrictionsMet && !event.isViewOnly && (
                                 <div className="text-sm text-orange-600 font-semibold my-2 p-2 bg-orange-50 border border-orange-200 rounded">
                                   <Lock className="w-4 h-4 inline-block mr-1" />
-                                  Enrollment is restricted to other departments.
+                                  Enrollment is restricted for your group.
                                 </div>
                               )}
                               

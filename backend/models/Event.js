@@ -23,14 +23,22 @@ const eventSchema = new mongoose.Schema({
   maxCoursesPerStudent: { type: Number, default: 1, min: 1 },
   courses: [courseOfferingSchema],
   
-  // --- NEW FIELDS ADDED ---
+  // --- UPDATED & NEW FIELDS ---
   allowedDepartments: {
     type: [String],
-    default: [],
+    default: [], // An empty array means ALL departments are allowed
+  },
+  allowedSemesters: {
+    type: [String],
+    default: [], // An empty array means ALL semesters are allowed
+  },
+  allowedSections: {
+    type: [String],
+    default: [], // An empty array means ALL sections are allowed
   },
   isViewOnly: {
     type: Boolean,
-    default: false,
+    default: false, // If true, enrollment is disabled even if the event is open
   },
 }, {
   timestamps: true,

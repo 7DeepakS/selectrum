@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import api from '../services/api';
 
-// --- Reusable Modal Component for Editing a Student (Fully Implemented) ---
 const EditStudentModal = ({ isOpen, onClose, student, events, onSave, onPasswordReset, onEnroll, onUnenroll }) => {
     const [formData, setFormData] = useState({});
     const [newPassword, setNewPassword] = useState('');
@@ -15,6 +14,8 @@ const EditStudentModal = ({ isOpen, onClose, student, events, onSave, onPassword
                 name: student.name || '',
                 username: student.username || '',
                 department: student.department || '',
+                semester: student.semester || '',
+                section: student.section || '',
             });
         }
     }, [student]);
@@ -56,16 +57,18 @@ const EditStudentModal = ({ isOpen, onClose, student, events, onSave, onPassword
 
     if (!isOpen || !student) return null;
 
-    const studentEnrollmentIds = new Set(student.enrollments.map(e => e.courseId));
+    const studentEnrollmentIds = new Set((student.enrollments || []).map(e => e.courseId));
 
     return (
         <div className="fixed inset-0 bg-black bg-opacity-60 flex justify-center items-center z-50">
             <div className="bg-white p-6 rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
                 <h3 className="text-2xl font-bold text-gray-800 mb-4 border-b pb-2">Edit Student: {student.name}</h3>
                 <div className="space-y-4">
-                    <div><label className="block text-sm font-medium">Name</label><input type="text" name="name" value={formData.name} onChange={handleChange} className="w-full p-2 border rounded-md" /></div>
-                    <div><label className="block text-sm font-medium">Username</label><input type="text" name="username" value={formData.username} onChange={handleChange} className="w-full p-2 border rounded-md" /></div>
-                    <div><label className="block text-sm font-medium">Department</label><input type="text" name="department" value={formData.department} onChange={handleChange} className="w-full p-2 border rounded-md" /></div>
+                    <div><label className="block text-sm font-medium">Name</label><input type="text" name="name" value={formData.name || ''} onChange={handleChange} className="w-full p-2 border rounded-md" /></div>
+                    <div><label className="block text-sm font-medium">Username</label><input type="text" name="username" value={formData.username || ''} onChange={handleChange} className="w-full p-2 border rounded-md" /></div>
+                    <div><label className="block text-sm font-medium">Department</label><input type="text" name="department" value={formData.department || ''} onChange={handleChange} className="w-full p-2 border rounded-md" /></div>
+                    <div><label className="block text-sm font-medium">Semester</label><input type="text" name="semester" value={formData.semester || ''} onChange={handleChange} className="w-full p-2 border rounded-md" /></div>
+                    <div><label className="block text-sm font-medium">Section</label><input type="text" name="section" value={formData.section || ''} onChange={handleChange} className="w-full p-2 border rounded-md" /></div>
                     <button onClick={handleSave} disabled={isSaving} className="px-4 py-2 bg-blue-600 text-white rounded-md">{isSaving ? 'Saving...' : 'Save Details'}</button>
                 </div>
                 <div className="mt-6 pt-4 border-t">
@@ -83,7 +86,7 @@ const EditStudentModal = ({ isOpen, onClose, student, events, onSave, onPassword
                             </select>
                             <select value={enrollmentSelection.courseId} onChange={e => setEnrollmentSelection(p => ({ ...p, courseId: e.target.value }))} disabled={!enrollmentSelection.eventId} className="p-2 border rounded-md">
                                 <option value="">-- Select Course --</option>
-                                {availableCourses.map(c => !studentEnrollmentIds.has(c.course._id) && <option key={c._id} value={c._id}>{c.course.title}</option>)}
+                                {(availableCourses || []).map(c => !studentEnrollmentIds.has(c.course._id) && <option key={c._id} value={c._id}>{c.course.title}</option>)}
                             </select>
                             <button onClick={handleEnroll} className="px-4 py-2 bg-green-600 text-white rounded-md">Enroll Student</button>
                         </div>
@@ -91,7 +94,7 @@ const EditStudentModal = ({ isOpen, onClose, student, events, onSave, onPassword
                     <div>
                         <h5 className="font-semibold mb-2">Current Enrollments</h5>
                         {student.enrollments && student.enrollments.length > 0 ? (
-                            <ul className="space-y-1">{student.enrollments.map(enr => <li key={enr._id} className="flex justify-between items-center p-2 bg-white rounded border"><span>{enr.courseTitle}</span><button onClick={() => onUnenroll(student._id, enr.eventId, enr.courseId)} className="text-xs text-red-600 font-semibold">Un-enroll</button></li>)}</ul>
+                            <ul className="space-y-1">{student.enrollments.map(enr => <li key={enr.eventId + enr.courseId} className="flex justify-between items-center p-2 bg-white rounded border"><span>{enr.courseTitle}</span><button onClick={() => onUnenroll(student._id, enr.eventId, enr.courseId)} className="text-xs text-red-600 font-semibold">Un-enroll</button></li>)}</ul>
                         ) : <p className="text-sm text-gray-500">No enrollments found.</p>}
                     </div>
                 </div>
@@ -101,7 +104,7 @@ const EditStudentModal = ({ isOpen, onClose, student, events, onSave, onPassword
     );
 };
 
-const initialNewStudentState = { username: '', name: '', password: '', department: '' };
+const initialNewStudentState = { username: '', name: '', password: '', department: '', semester: '', section: '' };
 
 function StudentManagementPage() {
   const [students, setStudents] = useState([]);
@@ -241,7 +244,8 @@ function StudentManagementPage() {
           const res = await api.put(`users/${studentId}`, formData);
           setTimedMessage('success', res.data.message);
           fetchData();
-          setSelectedStudent(p => ({...p, ...res.data.data}));
+          const updatedStudentRes = await api.get(`users/students/${studentId}`);
+          setSelectedStudent(updatedStudentRes.data.data);
       } catch (err) { setTimedMessage('error', err.error); }
   };
   const handlePasswordReset = async (studentId, newPassword) => {
@@ -282,39 +286,22 @@ function StudentManagementPage() {
         <section className="p-6 bg-white rounded-xl shadow-lg">
           <h2 className="text-2xl font-semibold mb-4 text-gray-700 border-b pb-2">Add New Student</h2>
           <form onSubmit={handleAddStudent} className="space-y-4">
-            <div>
-              <label htmlFor="username" className="block text-sm font-medium text-gray-700 mb-1">Username</label>
-              <input id="username" type="text" name="username" value={newStudent.username} onChange={handleNewStudentChange} required className="w-full p-2 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500" />
-            </div>
-            <div>
-              <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-1">Full Name</label>
-              <input id="name" type="text" name="name" value={newStudent.name} onChange={handleNewStudentChange} required className="w-full p-2 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500" />
-            </div>
-            <div>
-              <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-1">Initial Password</label>
-              <input id="password" type="password" name="password" value={newStudent.password} onChange={handleNewStudentChange} required className="w-full p-2 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500" placeholder="Min. 6 characters" />
-            </div>
-            <div>
-              <label htmlFor="department" className="block text-sm font-medium text-gray-700 mb-1">Department (Optional)</label>
-              <input id="department" type="text" name="department" value={newStudent.department} onChange={handleNewStudentChange} className="w-full p-2 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500" />
-            </div>
-            <button type="submit" className="w-full p-3 bg-indigo-600 text-white font-semibold rounded-lg hover:bg-indigo-700 transition disabled:opacity-50" disabled={loadingStates.addingStudent}>
-              {loadingStates.addingStudent ? 'Adding...' : 'Add Student'}
-            </button>
+            <div><label htmlFor="username" className="block text-sm font-medium text-gray-700 mb-1">Username</label><input id="username" type="text" name="username" value={newStudent.username} onChange={handleNewStudentChange} required className="w-full p-2 border rounded-md" /></div>
+            <div><label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-1">Full Name</label><input id="name" type="text" name="name" value={newStudent.name} onChange={handleNewStudentChange} required className="w-full p-2 border rounded-md" /></div>
+            <div><label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-1">Initial Password</label><input id="password" type="password" name="password" value={newStudent.password} onChange={handleNewStudentChange} required className="w-full p-2 border rounded-md" placeholder="Min. 6 characters" /></div>
+            <div><label htmlFor="department" className="block text-sm font-medium text-gray-700 mb-1">Department (Optional)</label><input id="department" type="text" name="department" value={newStudent.department} onChange={handleNewStudentChange} className="w-full p-2 border rounded-md" /></div>
+            <div><label htmlFor="semester" className="block text-sm font-medium text-gray-700 mb-1">Semester (Optional)</label><input id="semester" type="text" name="semester" value={newStudent.semester} onChange={handleNewStudentChange} className="w-full p-2 border rounded-md" /></div>
+            <div><label htmlFor="section" className="block text-sm font-medium text-gray-700 mb-1">Section (Optional)</label><input id="section" type="text" name="section" value={newStudent.section} onChange={handleNewStudentChange} className="w-full p-2 border rounded-md" /></div>
+            <button type="submit" className="w-full p-3 bg-indigo-600 text-white font-semibold rounded-lg" disabled={loadingStates.addingStudent}>{loadingStates.addingStudent ? 'Adding...' : 'Add Student'}</button>
           </form>
         </section>
 
         <section className="p-6 bg-white rounded-xl shadow-lg">
           <h2 className="text-2xl font-semibold mb-4 text-gray-700 border-b pb-2">Upload Students via CSV</h2>
-          <p className="text-sm text-gray-600 mb-4">File must have lowercase headers: <code>username</code>, <code>name</code>, <code>password</code>. Optional: <code>department</code>.</p>
+          <p className="text-sm text-gray-600 mb-4">File must have headers: <code>username</code>, <code>name</code>, <code>password</code>. Optional: <code>department</code>, <code>semester</code>, <code>section</code>.</p>
           <form onSubmit={handleUploadCSV} className="space-y-4">
-            <div>
-              <label htmlFor="csv-upload-input" className="block text-sm font-medium text-gray-700 mb-1">Select CSV File</label>
-              <input id="csv-upload-input" type="file" accept=".csv" onChange={(e) => setCsvFile(e.target.files[0])} required className="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-gray-50 file:text-indigo-700 hover:file:bg-indigo-100 border border-gray-300 rounded-lg cursor-pointer p-2"/>
-            </div>
-            <button type="submit" className="w-full p-3 bg-teal-600 text-white font-semibold rounded-lg hover:bg-teal-700 transition disabled:opacity-50" disabled={loadingStates.uploadingCsv || !csvFile}>
-              {loadingStates.uploadingCsv ? 'Uploading...' : 'Upload CSV'}
-            </button>
+            <div><label htmlFor="csv-upload-input" className="block text-sm font-medium text-gray-700 mb-1">Select CSV File</label><input id="csv-upload-input" type="file" accept=".csv" onChange={(e) => setCsvFile(e.target.files[0])} required className="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-gray-50 hover:file:bg-indigo-100 border rounded-lg cursor-pointer p-2"/></div>
+            <button type="submit" className="w-full p-3 bg-teal-600 text-white font-semibold rounded-lg" disabled={loadingStates.uploadingCsv || !csvFile}>{loadingStates.uploadingCsv ? 'Uploading...' : 'Upload CSV'}</button>
           </form>
         </section>
       </div>
@@ -322,13 +309,8 @@ function StudentManagementPage() {
       <section className="p-6 bg-white rounded-xl shadow-lg">
         <div className="flex flex-col md:flex-row justify-between md:items-center mb-4 gap-4">
             <h2 className="text-2xl font-semibold">Student List</h2>
-            <div>
-                <label htmlFor="deptFilter" className="text-sm font-medium mr-2">Filter by Department:</label>
-                <select id="deptFilter" value={filterDepartment} onChange={e => setFilterDepartment(e.target.value)} className="p-2 border rounded-md">
-                    {distinctDepartments.map(dept => <option key={dept} value={dept}>{dept === 'all' ? 'All Departments' : dept || 'N/A'}</option>)}
-                </select>
-            </div>
-            {selectedStudents.size > 0 && ( <button onClick={handleBulkDelete} disabled={!!loadingStates.deletingStudent} className="px-4 py-2 bg-red-600 text-white font-semibold rounded-lg hover:bg-red-700 disabled:opacity-50"> {loadingStates.deletingStudent ? 'Deleting...' : `Delete Selected (${selectedStudents.size})`} </button> )}
+            <div><label htmlFor="deptFilter" className="text-sm font-medium mr-2">Filter by Department:</label><select id="deptFilter" value={filterDepartment} onChange={e => setFilterDepartment(e.target.value)} className="p-2 border rounded-md">{distinctDepartments.map(dept => <option key={dept} value={dept}>{dept === 'all' ? 'All Departments' : dept || 'N/A'}</option>)}</select></div>
+            {selectedStudents.size > 0 && ( <button onClick={handleBulkDelete} disabled={!!loadingStates.deletingStudent} className="px-4 py-2 bg-red-600 text-white font-semibold rounded-lg"> {loadingStates.deletingStudent ? 'Deleting...' : `Delete Selected (${selectedStudents.size})`} </button> )}
         </div>
         <div className="overflow-x-auto">
             {loadingStates.fetching ? <p className="text-center p-4">Loading...</p> : (
@@ -339,6 +321,8 @@ function StudentManagementPage() {
                             <th className="px-6 py-3 text-left text-xs font-medium uppercase">Name</th>
                             <th className="px-6 py-3 text-left text-xs font-medium uppercase">Username</th>
                             <th className="px-6 py-3 text-left text-xs font-medium uppercase">Department</th>
+                            <th className="px-6 py-3 text-left text-xs font-medium uppercase">Semester</th>
+                            <th className="px-6 py-3 text-left text-xs font-medium uppercase">Section</th>
                             <th className="px-6 py-3 text-right text-xs font-medium uppercase">Actions</th>
                         </tr>
                     </thead>
@@ -347,11 +331,13 @@ function StudentManagementPage() {
                             <tr key={student._id} className={selectedStudents.has(student._id) ? 'bg-indigo-50' : 'hover:bg-gray-50'}>
                                 <td className="p-4"><input type="checkbox" checked={selectedStudents.has(student._id)} onChange={() => handleSelectStudent(student._id)}/></td>
                                 <td className="px-6 py-4 whitespace-nowrap">{student.name}</td>
-                                <td className="px-6 py-4 whitespace-nowrap text-gray-500">{student.username}</td>
-                                <td className="px-6 py-4 whitespace-nowrap text-gray-500">{student.department || 'N/A'}</td>
+                                <td className="px-6 py-4 whitespace-nowrap">{student.username}</td>
+                                <td className="px-6 py-4 whitespace-nowrap">{student.department || 'N/A'}</td>
+                                <td className="px-6 py-4 whitespace-nowrap">{student.semester || 'N/A'}</td>
+                                <td className="px-6 py-4 whitespace-nowrap">{student.section || 'N/A'}</td>
                                 <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium space-x-4">
                                     <button onClick={() => setSelectedStudent(student)} className="text-indigo-600 hover:underline font-semibold">Edit</button>
-                                    <button onClick={() => handleDeleteStudent(student._id, student.name)} disabled={!!loadingStates.deletingStudent} className="text-red-600 hover:underline font-semibold disabled:text-gray-400">Delete</button>
+                                    <button onClick={() => handleDeleteStudent(student._id, student.name)} disabled={!!loadingStates.deletingStudent} className="text-red-600 hover:underline font-semibold">Delete</button>
                                 </td>
                             </tr>
                         ))}

@@ -60,7 +60,7 @@ router.get('/students', authMiddleware, authorizeRoles('admin'), async (req, res
     } catch (err) { next(err); }
 });
 
-// --- ENHANCED: Get a single student by ID with populated enrollments ---
+// GET /api/users/students/:userId - Get a single student by ID
 router.get('/students/:userId', authMiddleware, authorizeRoles('admin'), async (req, res, next) => {
     try {
         if (!mongoose.Types.ObjectId.isValid(req.params.userId)) return sendErrorResponse(res, 400, 'Invalid user ID format.');
@@ -72,7 +72,7 @@ router.get('/students/:userId', authMiddleware, authorizeRoles('admin'), async (
     }
 });
 
-// --- NEW ROUTE: Get a unique list of all departments ---
+// GET /api/users/departments - Get a unique list of all departments
 router.get('/departments', authMiddleware, authorizeRoles('admin'), async (req, res, next) => {
     try {
         const departments = await User.distinct("department", { 
@@ -85,16 +85,51 @@ router.get('/departments', authMiddleware, authorizeRoles('admin'), async (req, 
     }
 });
 
+// --- NEW ROUTES for Admin Dropdowns ---
+router.get('/semesters', authMiddleware, authorizeRoles('admin'), async (req, res, next) => {
+    try {
+        const semesters = await User.distinct("semester", { 
+            role: 'student', 
+            semester: { $ne: null, $ne: "" } 
+        });
+        res.json({ success: true, data: semesters.sort() });
+    } catch (err) {
+        next(err);
+    }
+});
+
+router.get('/sections', authMiddleware, authorizeRoles('admin'), async (req, res, next) => {
+    try {
+        const sections = await User.distinct("section", { 
+            role: 'student', 
+            section: { $ne: null, $ne: "" } 
+        });
+        res.json({ success: true, data: sections.sort() });
+    } catch (err) {
+        next(err);
+    }
+});
+
 // POST /api/users/add-student - Add a new student
 router.post('/add-student', authMiddleware, authorizeRoles('admin'), async (req, res, next) => {
     try {
-      const { username, name, password, department } = req.body;
+      const { username, name, password, department, semester, section } = req.body;
       if (!username?.trim() || !name?.trim() || !password) return sendErrorResponse(res, 400, 'Username, name, and password are required.');
       const existingUser = await User.findOne({ username: username.trim().toLowerCase() });
       if (existingUser) return sendErrorResponse(res, 400, `Username "${username.trim()}" already exists.`);
-      const user = new User({ username: username.trim().toLowerCase(), name: name.trim(), role: 'student', password, department: department ? department.trim() : null });
+      
+      const user = new User({ 
+          username: username.trim().toLowerCase(), 
+          name: name.trim(), 
+          role: 'student', 
+          password, 
+          department: department ? department.trim() : null,
+          semester: semester ? semester.trim() : null,
+          section: section ? section.trim() : null
+      });
       await user.save();
-      const userResponse = { _id: user._id, username: user.username, name: user.name, role: user.role, department: user.department };
+
+      const userResponse = { _id: user._id, username: user.username, name: user.name, role: user.role, department: user.department, semester: user.semester, section: user.section };
       res.status(201).json({ success: true, message: 'Student added successfully.', data: userResponse });
     } catch (err) { next(err); }
 });
@@ -103,13 +138,15 @@ router.post('/add-student', authMiddleware, authorizeRoles('admin'), async (req,
 router.put('/:userId', authMiddleware, authorizeRoles('admin'), async (req, res, next) => {
     try {
         const { userId } = req.params;
-        const { name, username, department } = req.body;
+        const { name, username, department, semester, section } = req.body;
         if (!mongoose.Types.ObjectId.isValid(userId)) return sendErrorResponse(res, 400, 'Invalid user ID format.');
 
         const updateFields = {};
         if (name !== undefined) updateFields.name = name.trim();
         if (username !== undefined) updateFields.username = username.trim().toLowerCase();
         if (department !== undefined) updateFields.department = department.trim();
+        if (semester !== undefined) updateFields.semester = semester.trim();
+        if (section !== undefined) updateFields.section = section.trim();
 
         const updatedUser = await User.findByIdAndUpdate(userId, updateFields, { new: true, runValidators: true }).select('-password');
         if (!updatedUser) return sendErrorResponse(res, 404, 'User not found.');
@@ -154,21 +191,16 @@ router.delete('/', authMiddleware, authorizeRoles('admin'), async (req, res, nex
         if (!Array.isArray(userIds) || userIds.length === 0) {
             return sendErrorResponse(res, 400, 'An array of user IDs is required.');
         }
-
         for (const id of userIds) {
             if (!mongoose.Types.ObjectId.isValid(id)) {
                 return sendErrorResponse(res, 400, `Invalid user ID format found in the list: ${id}`);
             }
         }
-        
         await Event.updateMany({}, { $pull: { "courses.$[].slots.$[].enrolled": { $in: userIds } } });
-        
         const deleteResult = await User.deleteMany({ _id: { $in: userIds } });
-
         if (deleteResult.deletedCount === 0) {
             return sendErrorResponse(res, 404, 'No matching students found to delete.');
         }
-
         res.json({ 
             success: true, 
             message: `${deleteResult.deletedCount} student(s) have been permanently deleted.` 

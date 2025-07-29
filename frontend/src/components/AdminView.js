@@ -2,15 +2,15 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import api from '../services/api';
 import Select from 'react-select';
 
-// --- Reusable Modal Component for Editing Events ---
-const EditEventModal = ({ isOpen, onClose, event, onSave, distinctDepartments }) => {
+// --- Reusable Modal Component for Editing Events (Fully Upgraded) ---
+const EditEventModal = ({ isOpen, onClose, event, onSave, distinctDepartments, distinctSemesters, distinctSections }) => {
     const [formData, setFormData] = useState(null);
     const [isSaving, setIsSaving] = useState(false);
-
-    // Format department strings into { value, label } options for react-select
-    const departmentOptions = useMemo(() => {
-        return distinctDepartments.filter(d => d !== 'all' && d !== 'N/A').map(dept => ({ value: dept, label: dept }));
-    }, [distinctDepartments]);
+    
+    // Format options for react-select
+    const departmentOptions = useMemo(() => distinctDepartments.filter(d => d !== 'all' && d !== 'N/A').map(d => ({ value: d, label: d })), [distinctDepartments]);
+    const semesterOptions = useMemo(() => distinctSemesters.map(s => ({ value: s, label: s })), [distinctSemesters]);
+    const sectionOptions = useMemo(() => distinctSections.map(s => ({ value: s, label: s })), [distinctSections]);
 
     useEffect(() => {
         if (event) {
@@ -19,8 +19,9 @@ const EditEventModal = ({ isOpen, onClose, event, onSave, distinctDepartments })
                 isOpen: event.isOpen || false,
                 isViewOnly: event.isViewOnly || false,
                 maxCoursesPerStudent: event.maxCoursesPerStudent || 1,
-                // Convert department array into the format react-select expects
-                allowedDepartments: (event.allowedDepartments || []).map(dept => ({ value: dept, label: dept })),
+                allowedDepartments: (event.allowedDepartments || []).map(d => ({ value: d, label: d })),
+                allowedSemesters: (event.allowedSemesters || []).map(s => ({ value: s, label: s })),
+                allowedSections: (event.allowedSections || []).map(s => ({ value: s, label: s })),
             });
         }
     }, [event]);
@@ -30,23 +31,23 @@ const EditEventModal = ({ isOpen, onClose, event, onSave, distinctDepartments })
         setFormData(prev => ({ ...prev, [name]: type === 'checkbox' ? checked : value }));
     };
     
-    const handleSelectChange = (selectedOptions) => {
-        setFormData(prev => ({ ...prev, allowedDepartments: selectedOptions || [] }));
+    // Generic handler for all multi-select components
+    const handleSelectChange = (selectedOptions, action) => {
+        setFormData(prev => ({ ...prev, [action.name]: selectedOptions || [] }));
     };
 
     const handleSave = async () => {
         setIsSaving(true);
         try {
-            // Convert the react-select options back to a simple array of strings
-            const departmentsArray = formData.allowedDepartments.map(opt => opt.value);
-            await onSave(event._id, { ...formData, allowedDepartments: departmentsArray });
+            await onSave(event._id, {
+                ...formData,
+                allowedDepartments: formData.allowedDepartments.map(opt => opt.value),
+                allowedSemesters: formData.allowedSemesters.map(opt => opt.value),
+                allowedSections: formData.allowedSections.map(opt => opt.value),
+            });
             onClose();
-        } catch (error) {
-            console.error("Failed to save event", error);
-            // Optionally, show an error message to the user within the modal
-        } finally {
-            setIsSaving(false);
-        }
+        } catch (error) { console.error("Failed to save event", error);
+        } finally { setIsSaving(false); }
     };
 
     if (!isOpen || !formData) return null;
@@ -56,37 +57,23 @@ const EditEventModal = ({ isOpen, onClose, event, onSave, distinctDepartments })
             <div className="bg-white p-6 rounded-xl shadow-2xl w-full max-w-lg">
                 <h3 className="text-xl font-bold text-gray-800 mb-4">Edit Event: {event.name}</h3>
                 <div className="space-y-4">
-                    <div>
-                        <label className="block text-sm font-medium text-gray-700">Event Name</label>
-                        <input type="text" name="name" value={formData.name} onChange={handleChange} className="mt-1 block w-full p-2 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500"/>
-                    </div>
-                    <div>
-                        <label className="block text-sm font-medium text-gray-700">Max Courses Per Student</label>
-                        <input type="number" name="maxCoursesPerStudent" min="1" value={formData.maxCoursesPerStudent} onChange={handleChange} className="mt-1 block w-full p-2 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500"/>
-                    </div>
+                    <div><label className="block text-sm font-medium text-gray-700">Event Name</label><input type="text" name="name" value={formData.name} onChange={handleChange} className="mt-1 block w-full p-2 border border-gray-300 rounded-md"/></div>
+                    <div><label className="block text-sm font-medium text-gray-700">Max Courses Per Student</label><input type="number" name="maxCoursesPerStudent" value={formData.maxCoursesPerStudent} onChange={handleChange} className="mt-1 block w-full p-2 border border-gray-300 rounded-md"/></div>
                     <div>
                         <label className="block text-sm font-medium text-gray-700">Allowed Departments</label>
-                        <Select
-                            isMulti
-                            name="allowedDepartments"
-                            options={departmentOptions}
-                            className="mt-1 basic-multi-select"
-                            classNamePrefix="select"
-                            value={formData.allowedDepartments}
-                            onChange={handleSelectChange}
-                            placeholder="Select departments (leave empty for all)"
-                        />
-                        <p className="text-xs text-gray-500 mt-1">If no departments are selected, all students will be allowed to enroll.</p>
+                        <Select isMulti name="allowedDepartments" options={departmentOptions} value={formData.allowedDepartments} onChange={handleSelectChange} placeholder="Leave empty for all"/>
                     </div>
-                    <div className="flex items-center space-x-6 pt-2">
-                        <label className="flex items-center space-x-2 cursor-pointer"><input type="checkbox" name="isOpen" checked={formData.isOpen} onChange={handleChange} className="h-4 w-4 text-green-600 border-gray-300 rounded focus:ring-green-500"/><span>Open for Enrollment</span></label>
-                        <label className="flex items-center space-x-2 cursor-pointer"><input type="checkbox" name="isViewOnly" checked={formData.isViewOnly} onChange={handleChange} className="h-4 w-4 text-yellow-600 border-gray-300 rounded focus:ring-yellow-500"/><span>View-Only Mode</span></label>
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700">Allowed Semesters</label>
+                        <Select isMulti name="allowedSemesters" options={semesterOptions} value={formData.allowedSemesters} onChange={handleSelectChange} placeholder="Leave empty for all"/>
                     </div>
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700">Allowed Sections</label>
+                        <Select isMulti name="allowedSections" options={sectionOptions} value={formData.allowedSections} onChange={handleSelectChange} placeholder="Leave empty for all"/>
+                    </div>
+                    <div className="flex items-center space-x-6 pt-2"><label className="flex items-center space-x-2 cursor-pointer"><input type="checkbox" name="isOpen" checked={formData.isOpen} onChange={handleChange} /><span>Open for Enrollment</span></label><label className="flex items-center space-x-2 cursor-pointer"><input type="checkbox" name="isViewOnly" checked={formData.isViewOnly} onChange={handleChange} /><span>View-Only Mode</span></label></div>
                 </div>
-                <div className="flex justify-end space-x-3 mt-6 pt-4 border-t">
-                    <button onClick={onClose} className="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300">Cancel</button>
-                    <button onClick={handleSave} disabled={isSaving} className="px-4 py-2 bg-blue-600 text-white rounded-md disabled:opacity-50 hover:bg-blue-700">{isSaving ? 'Saving...' : 'Save Changes'}</button>
-                </div>
+                <div className="flex justify-end space-x-3 mt-6 pt-4 border-t"><button onClick={onClose} className="px-4 py-2 bg-gray-200 rounded-md">Cancel</button><button onClick={handleSave} disabled={isSaving} className="px-4 py-2 bg-blue-600 text-white rounded-md disabled:opacity-50">{isSaving ? 'Saving...' : 'Save Changes'}</button></div>
             </div>
         </div>
     );
@@ -97,12 +84,16 @@ const reportColumnConfig = {
     username: { label: 'Username', defaultChecked: true },
     name: { label: 'Name', defaultChecked: true },
     department: { label: 'Department', defaultChecked: true },
+    semester: { label: 'Semester', defaultChecked: false },
+    section: { label: 'Section', defaultChecked: false },
     eventName: { label: 'Event Name', defaultChecked: false },
 };
 
 function AdminView() {
   const [events, setEvents] = useState([]);
   const [distinctDepartments, setDistinctDepartments] = useState(['all']);
+  const [distinctSemesters, setDistinctSemesters] = useState(['all']);
+  const [distinctSections, setDistinctSections] = useState(['all']);
   const [selectedEventForStatusTable, setSelectedEventForStatusTable] = useState(''); 
   const [eventStatusByDeptData, setEventStatusByDeptData] = useState(null); 
   const [activityLogs, setActivityLogs] = useState([]);
@@ -117,9 +108,13 @@ function AdminView() {
     isDownloadingChoiceReport: false,
   });
   const [expandedEventCoursesId, setExpandedEventCoursesId] = useState(null);
+  
   const [reportFilterEvent, setReportFilterEvent] = useState('all');
   const [reportFilterDepartment, setReportFilterDepartment] = useState('all');
+  const [reportFilterSemester, setReportFilterSemester] = useState('all');
+  const [reportFilterSection, setReportFilterSection] = useState('all');
   const [reportFilterCourse, setReportFilterCourse] = useState('all');
+  
   const [coursesForReportFilter, setCoursesForReportFilter] = useState([]);
   const [reportChoiceNumber, setReportChoiceNumber] = useState(1);
   const [reportSelectedColumns, setReportSelectedColumns] = useState(
@@ -142,19 +137,16 @@ function AdminView() {
   const fetchDashboardData = useCallback(async () => {
     setLoadingStates(p => ({ ...p, initialData: true }));
     try {
-        const [eventsRes, deptsRes] = await Promise.all([
+        const [eventsRes, deptsRes, semsRes, secsRes] = await Promise.all([
             api.get('events/all'),
-            api.get('events/enrollment-summary/by-department').catch(() => null)
+            api.get('users/departments'),
+            api.get('users/semesters'),
+            api.get('users/sections')
         ]);
         if (eventsRes.data.success) setEvents(eventsRes.data.data || []);
-        if (deptsRes?.data?.success) {
-            let depts = ['all', ...(deptsRes.data.data.distinctDepartments || [])];
-            setDistinctDepartments([...new Set(depts)].sort((a,b) => {
-                if (a === 'all') return -1; if (b === 'all') return 1;
-                if (a === 'N/A') return 1; if (b === 'N/A') return -1;
-                return String(a).localeCompare(b);
-            }));
-        }
+        if (deptsRes.data.success) setDistinctDepartments(['all', ...(deptsRes.data.data || [])]);
+        if (semsRes.data.success) setDistinctSemesters(['all', ...(semsRes.data.data || [])]);
+        if (secsRes.data.success) setDistinctSections(['all', ...(secsRes.data.data || [])]);
     } catch (err) { setTimedMessage('error', err.error || 'Failed to load dashboard data.');
     } finally { setLoadingStates(p => ({ ...p, initialData: false })); }
   }, []);
@@ -214,30 +206,16 @@ function AdminView() {
   
   const toggleEventCourses = (eventId) => setExpandedEventCoursesId(prevId => (prevId === eventId ? null : eventId));
   
-  const handleOpenEditModal = (event) => {
-    setEditingEvent(event);
-    setIsEditModalOpen(true);
-  };
+  const handleOpenEditModal = (event) => { setEditingEvent(event); setIsEditModalOpen(true); };
 
   const handleUpdateEvent = async (eventId, updatedData) => {
     try {
         const response = await api.put(`/events/${eventId}`, updatedData);
         if (response.data.success) {
-            let updatedEvent = response.data.data;
-            const processedCourses = (updatedEvent.courses || []).map(offering => {
-                let totalEnrolled = (offering.slots || []).reduce((sum, slot) => sum + (slot.enrolled || []).length, 0);
-                let totalCapacity = (offering.slots || []).reduce((sum, slot) => sum + (slot.maxCapacity || 0), 0);
-                return { ...offering, totalEnrolled, totalCapacity };
-            });
-            updatedEvent.courses = processedCourses;
-            setEvents(prevEvents => prevEvents.map(e => e._id === eventId ? updatedEvent : e));
+            setEvents(prevEvents => prevEvents.map(e => e._id === eventId ? response.data.data : e));
             setTimedMessage('success', 'Event updated successfully!');
-        } else {
-            setTimedMessage('error', response.data.error);
-        }
-    } catch (err) {
-        setTimedMessage('error', err.error || 'Failed to update event.');
-    }
+        } else { setTimedMessage('error', response.data.error); }
+    } catch (err) { setTimedMessage('error', err.error || 'Failed to update event.'); }
   };
   
   const handleDownloadLogs = async () => {
@@ -273,10 +251,12 @@ function AdminView() {
         const payload = {
             columns: activeColumns,
             choiceNumber: reportChoiceNumber,
-            filters: {
-                eventId: reportFilterEvent,
-                department: reportFilterDepartment,
-                courseId: reportFilterCourse,
+            filters: { 
+                eventId: reportFilterEvent, 
+                department: reportFilterDepartment, 
+                semester: reportFilterSemester,
+                section: reportFilterSection,
+                courseId: reportFilterCourse 
             }
         };
         const response = await api.post('events/download/custom-detailed', payload, { responseType: 'blob' });
@@ -300,7 +280,7 @@ function AdminView() {
 
   return (
     <>
-      <EditEventModal isOpen={isEditModalOpen} onClose={() => setIsEditModalOpen(false)} event={editingEvent} onSave={handleUpdateEvent} distinctDepartments={distinctDepartments} />
+      <EditEventModal isOpen={isEditModalOpen} onClose={() => setIsEditModalOpen(false)} event={editingEvent} onSave={handleUpdateEvent} distinctDepartments={distinctDepartments} distinctSemesters={distinctSemesters} distinctSections={distinctSections} />
       <div className="space-y-8 p-4 md:p-6">
         {uiMessages.error && <p className="p-3 my-4 bg-red-100 text-red-700 rounded-md shadow">{uiMessages.error}</p>}
         {uiMessages.success && <p className="p-3 my-4 bg-green-100 text-green-700 rounded-md shadow">{uiMessages.success}</p>}
@@ -323,9 +303,11 @@ function AdminView() {
                                   <td className="px-6 py-4 whitespace-nowrap font-medium text-gray-900">{event.name}</td>
                                   <td className="px-6 py-4 whitespace-nowrap"><span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${event.isOpen ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>{event.isOpen ? 'Open' : 'Closed'}</span></td>
                                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                                      {event.isViewOnly && <div className="text-yellow-800 font-semibold">View-Only</div>}
-                                      {(event.allowedDepartments?.length > 0) && <div className="text-blue-800">Dept. Restricted</div>}
-                                      {(!event.isViewOnly && (!event.allowedDepartments || event.allowedDepartments.length === 0)) && <span className="text-gray-400">None</span>}
+                                      {event.isViewOnly && <div className="font-semibold text-yellow-800">View-Only</div>}
+                                      {(event.allowedDepartments?.length > 0) && <div>Dept. Restricted</div>}
+                                      {(event.allowedSemesters?.length > 0) && <div>Sem. Restricted</div>}
+                                      {(event.allowedSections?.length > 0) && <div>Sec. Restricted</div>}
+                                      {(!event.isViewOnly && !event.allowedDepartments?.length && !event.allowedSemesters?.length && !event.allowedSections?.length) && <span className="text-gray-400">None</span>}
                                   </td>
                                   <td className="px-6 py-4 whitespace-nowrap text-sm">
                                       <button onClick={() => toggleEventCourses(event._id)} className="text-indigo-600 hover:text-indigo-900 font-medium mr-4">Courses ({event.courses?.length || 0})</button>
@@ -333,23 +315,16 @@ function AdminView() {
                                   </td>
                               </tr>
                               {expandedEventCoursesId === event._id && (
-                                  <tr>
-                                      <td colSpan="4" className="p-4 bg-gray-50">
-                                          <div className="p-4 bg-white rounded-md border">
-                                              <h4 className="font-semibold text-gray-700 mb-2">Courses in "{event.name}"</h4>
-                                              {event.courses && event.courses.length > 0 ? (
-                                                  <ul className="list-disc list-inside space-y-2 text-gray-600">
-                                                      {event.courses.map(offering => (
-                                                          <li key={offering._id}>
-                                                              {offering.course?.title || 'Unnamed Course'} - 
-                                                              <span className="font-medium text-gray-800"> ({offering.totalEnrolled} / {offering.totalCapacity} Enrolled)</span>
-                                                          </li>
-                                                      ))}
-                                                  </ul>
-                                              ) : ( <p className="text-gray-500">No courses assigned to this event.</p> )}
-                                          </div>
-                                      </td>
-                                  </tr>
+                                  <tr><td colSpan="4" className="p-4 bg-gray-50">
+                                      <div className="p-4 bg-white rounded-md border">
+                                          <h4 className="font-semibold text-gray-700 mb-2">Courses in "{event.name}"</h4>
+                                          {event.courses && event.courses.length > 0 ? (
+                                              <ul className="list-disc list-inside space-y-2 text-gray-600">
+                                                  {event.courses.map(offering => ( <li key={offering._id}> {offering.course?.title || 'Unnamed Course'} - <span className="font-medium text-gray-800"> ({offering.totalEnrolled} / {offering.totalCapacity} Enrolled)</span> </li> ))}
+                                              </ul>
+                                          ) : ( <p className="text-gray-500">No courses assigned to this event.</p> )}
+                                      </div>
+                                  </td></tr>
                               )}
                           </React.Fragment>
                       ))}
@@ -409,7 +384,7 @@ function AdminView() {
                       ))}
                   </div>
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                   <div>
                       <label htmlFor="reportFilterEvent" className="block text-sm font-medium text-gray-600 mb-1">Event:</label>
                       <select id="reportFilterEvent" value={reportFilterEvent} onChange={(e) => setReportFilterEvent(e.target.value)} className="w-full p-2 border border-gray-300 rounded-lg">
@@ -428,6 +403,20 @@ function AdminView() {
                       <label htmlFor="reportFilterDept" className="block text-sm font-medium text-gray-600 mb-1">Department:</label>
                       <select id="reportFilterDept" value={reportFilterDepartment} onChange={(e) => setReportFilterDepartment(e.target.value)} className="w-full p-2 border border-gray-300 rounded-lg">
                           {distinctDepartments.map(d => <option key={d} value={d}>{d === 'all' ? 'All Departments' : d}</option>)}
+                      </select>
+                  </div>
+                  <div>
+                      <label htmlFor="reportFilterSemester" className="block text-sm font-medium text-gray-600 mb-1">Semester:</label>
+                      <select id="reportFilterSemester" value={reportFilterSemester} onChange={(e) => setReportFilterSemester(e.target.value)} className="w-full p-2 border border-gray-300 rounded-lg">
+                          <option value="all">All Semesters</option>
+                          {distinctSemesters.map(s => <option key={s} value={s}>{s}</option>)}
+                      </select>
+                  </div>
+                  <div>
+                      <label htmlFor="reportFilterSection" className="block text-sm font-medium text-gray-600 mb-1">Section:</label>
+                      <select id="reportFilterSection" value={reportFilterSection} onChange={(e) => setReportFilterSection(e.target.value)} className="w-full p-2 border border-gray-300 rounded-lg">
+                          <option value="all">All Sections</option>
+                          {distinctSections.map(s => <option key={s} value={s}>{s}</option>)}
                       </select>
                   </div>
               </div>

@@ -1,7 +1,7 @@
 // routes/students.js
 const express = require('express');
 const router = express.Router();
-const User = require('../models/User');
+const User = require('../models/user');
 const { authMiddleware, authorizeRoles } = require('../middleware/authMiddleware'); // Adjusted path
 
 // GET /api/students - Get all students (Admin only)
