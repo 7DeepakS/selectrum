@@ -1,6 +1,6 @@
 // middleware/authMiddleware.js
 const jwt = require('jsonwebtoken');
-const User = require('../models/User'); // Adjust path as needed
+const User = require('../models/user'); // Adjust path as needed
 const JWT_SECRET = process.env.JWT_SECRET;
 
 const sendAuthError = (res, message = 'Not authorized, token failed') => {
