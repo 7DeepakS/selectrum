@@ -8,7 +8,6 @@ const userSchema = new mongoose.Schema({
     unique: true,
     trim: true,
     lowercase: true,
-    // --- FIX #1: Corrected the regular expression from "0--9" to "0-9" ---
     match: [/^[a-zA-Z0-9_.-]+$/, 'Username can only contain letters, numbers, underscore, dot, or hyphen'],
     minlength: [3, 'Username must be at least 3 characters long'],
     maxlength: [30, 'Username cannot exceed 30 characters'],
@@ -36,6 +35,8 @@ const userSchema = new mongoose.Schema({
     trim: true,
     maxlength: [100, 'Department cannot exceed 100 characters'],
   },
+  
+  // --- NEW FIELDS ---
   semester: {
     type: String,
     trim: true,
@@ -46,6 +47,7 @@ const userSchema = new mongoose.Schema({
     trim: true,
     maxlength: [50, 'Section cannot exceed 50 characters'],
   },
+  
   requiresPasswordChange: {
     type: Boolean,
     default: true,
@@ -83,6 +85,5 @@ userSchema.methods.comparePassword = async function (candidatePassword) {
   return await bcrypt.compare(candidatePassword, this.password);
 };
 
-// --- FIX #2: Prevent the OverwriteModelError ---
-// This checks if the model already exists before trying to create it.
+// This pattern prevents the "OverwriteModelError" in certain environments
 module.exports = mongoose.models.User || mongoose.model('User', userSchema);
