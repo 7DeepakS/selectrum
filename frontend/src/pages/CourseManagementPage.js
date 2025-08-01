@@ -11,20 +11,16 @@ const CourseOfferingModal = ({ isOpen, onClose, onSave, offeringToEdit, catalogC
     const [error, setError] = useState('');
 
     useEffect(() => {
-        // This effect runs whenever the modal is opened or the offering to edit changes.
         if (isOpen) {
-            setError(''); // Clear previous errors
+            setError('');
             if (offeringToEdit) {
-                // We are EDITING. Populate the form with the existing offering's data.
                 const editableSlots = (offeringToEdit.slots || []).map(s => ({
                     ...s, 
-                    time: new Date(s.time).toISOString().slice(0, 16), // Format date for input
-                    key: s._id || Date.now() + Math.random() // React key
+                    time: new Date(s.time).toISOString().slice(0, 16),
+                    key: s._id || Date.now() + Math.random()
                 }));
-                // The `course` field here should be the ID of the master course.
                 setOfferingData({ ...offeringToEdit, course: offeringToEdit.course._id, slots: editableSlots });
             } else {
-                // We are CREATING. Reset the form to its initial state.
                 setOfferingData(initialOfferingState);
             }
         }
@@ -32,7 +28,6 @@ const CourseOfferingModal = ({ isOpen, onClose, onSave, offeringToEdit, catalogC
 
     if (!isOpen) return null;
 
-    // Form field handlers
     const handleSlotChange = (index, field, value) => {
         const slots = [...offeringData.slots];
         const finalValue = field === 'maxCapacity' ? parseInt(value, 10) || 0 : value;
@@ -54,7 +49,6 @@ const CourseOfferingModal = ({ isOpen, onClose, onSave, offeringToEdit, catalogC
         }
     };
     
-    // When creating, filter out courses already in the event.
     const availableCourses = catalogCourses.filter(c => !existingCourseIdsInEvent.includes(c._id));
 
     return (
@@ -68,7 +62,7 @@ const CourseOfferingModal = ({ isOpen, onClose, onSave, offeringToEdit, catalogC
                             value={offeringData.course} 
                             onChange={handleCourseSelection} 
                             required 
-                            disabled={!!offeringToEdit} // Disable when editing
+                            disabled={!!offeringToEdit}
                             className="w-full p-2 border rounded-md mt-1 disabled:bg-gray-200 disabled:cursor-not-allowed"
                         >
                             <option value="">-- Choose Course --</option>
@@ -117,7 +111,6 @@ function CourseManagementPage() {
     const setTimedMessage = (type, text, duration = 5000) => { setUiMessage({ type, text }); setTimeout(() => setUiMessage({ type: '', text: '' }), duration); };
 
     const fetchData = useCallback(async () => {
-        // Don't set loading to true on refetches, only on initial load.
         if (!event) setLoading(true);
         try {
             const [eventRes, catalogRes] = await Promise.all([
@@ -134,32 +127,37 @@ function CourseManagementPage() {
 
     useEffect(() => { fetchData(); }, [fetchData]);
 
+    // --- THE FIX IS HERE (PART 1) ---
+    // The API call paths are now unified to use `/courses`.
     const handleAddOrUpdateOffering = async (offeringData) => {
-    try {
-        const response = offeringToEdit 
-            // Correct PUT URL
-            ? await api.put(`events/${eventId}/offerings/${offeringToEdit._id}`, offeringData)
-            // Correct POST URL
-            : await api.post(`events/${eventId}/offerings`, offeringData);
+        try {
+            const payload = {
+                course: offeringData.course,
+                slots: offeringData.slots.map(({ key, ...rest }) => rest) // Remove temporary React key before sending
+            };
 
-        if (response.data.success) {
-            setTimedMessage('success', offeringToEdit ? 'Course offering updated!' : 'Course offering added!');
-            setIsModalOpen(false);
-            setOfferingToEdit(null);
+            const response = offeringToEdit 
+                ? await api.put(`events/${eventId}/courses/${offeringToEdit._id}`, payload)
+                : await api.post(`events/${eventId}/courses`, payload);
+
+            if (response.data.success) {
+                setTimedMessage('success', offeringToEdit ? 'Course offering updated!' : 'Course offering added!');
+                setIsModalOpen(false);
+                setOfferingToEdit(null);
+                fetchData();
+            } else { setTimedMessage('error', response.data.error); }
+        } catch (err) { setTimedMessage('error', err.error); }
+    };
+
+    const handleDeleteCourseOffering = async (offeringId, courseTitle) => {
+        if (!window.confirm(`Remove "${courseTitle}" from this event?`)) return;
+        try {
+            await api.delete(`events/${eventId}/courses/${offeringId}`);
+            setTimedMessage('success', 'Offering removed.');
             fetchData();
-        } else { setTimedMessage('error', response.data.error); }
-    } catch (err) { setTimedMessage('error', err.error); }
-};
-
-const handleDeleteCourseOffering = async (offeringId, courseTitle) => {
-    if (!window.confirm(`Remove "${courseTitle}" from this event?`)) return;
-    try {
-        // Correct DELETE URL
-        await api.delete(`events/${eventId}/offerings/${offeringId}`);
-        setTimedMessage('success', 'Offering removed.');
-        fetchData();
-    } catch(err) { setTimedMessage('error', err.error); }
-};
+        } catch(err) { setTimedMessage('error', err.error); }
+    };
+    // --- END OF FIX (PART 1) ---
 
     const openCreateModal = () => { setOfferingToEdit(null); setIsModalOpen(true); };
     const openEditModal = (offering) => { setOfferingToEdit(offering); setIsModalOpen(true); };
@@ -192,8 +190,8 @@ const handleDeleteCourseOffering = async (offeringId, courseTitle) => {
                 <div className="space-y-4">
                     {(event.courses || []).length === 0 && <p className="text-gray-500">No courses have been offered for this event yet.</p>}
                     {(event.courses || []).map(offering => {
-                        const courseInfo = offering.course; // The backend populates this
-                        if (!courseInfo) return null; // Safeguard for inconsistent data
+                        const courseInfo = offering.course;
+                        if (!courseInfo) return null;
 
                         return (
                             <div key={offering._id} className="p-4 border rounded-lg bg-gray-50 hover:border-indigo-200 transition">
@@ -205,6 +203,8 @@ const handleDeleteCourseOffering = async (offeringId, courseTitle) => {
                                             <p className="font-semibold">{(offering.slots || []).length} slot(s) offered:</p>
                                             <ul className="list-disc list-inside pl-2">
                                                 {(offering.slots || []).map(slot => (
+                                                    // --- THE FIX IS HERE (PART 2) ---
+                                                    // Added a unique key to the list item
                                                     <li key={slot._id}>
                                                         {new Date(slot.time).toLocaleString()} - 
                                                         Capacity: {slot.maxCapacity} - 
@@ -217,6 +217,7 @@ const handleDeleteCourseOffering = async (offeringId, courseTitle) => {
                                                     <p className="font-semibold">Prerequisites:</p>
                                                     <ul className="list-disc list-inside pl-2">
                                                         {courseInfo.prerequisites.map(prereqId => (
+                                                            // Also added a key here for good measure
                                                             <li key={prereqId}>{courseTitleMap.get(prereqId.toString()) || 'Loading...'}</li>
                                                         ))}
                                                     </ul>

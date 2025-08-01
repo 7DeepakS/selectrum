@@ -212,6 +212,7 @@ router.post('/', authMiddleware, authorizeRoles('admin'), async (req, res, next)
     } catch (err) { next(err); }
 });
 
+// PUT /api/events/:eventId
 router.put('/:eventId', authMiddleware, authorizeRoles('admin'), async (req, res, next) => {
     try {
         const { eventId } = req.params;
@@ -237,6 +238,7 @@ router.put('/:eventId', authMiddleware, authorizeRoles('admin'), async (req, res
     } catch (err) { next(err); }
 });
 
+// DELETE /api/events/:eventId
 router.delete('/:eventId', authMiddleware, authorizeRoles('admin'), async (req, res, next) => {
     try {
         const { eventId } = req.params;
@@ -247,6 +249,12 @@ router.delete('/:eventId', authMiddleware, authorizeRoles('admin'), async (req, 
     } catch (err) { next(err); }
 });
 
+
+// =========================================================================
+// --- COURSE OFFERING MANAGEMENT ROUTES (NOW CONSISTENT) ---
+// =========================================================================
+
+// POST /api/events/:eventId/courses - Add a new course offering to an event
 router.post('/:eventId/courses', authMiddleware, authorizeRoles('admin'), async (req, res, next) => {
     try {
         const { eventId } = req.params;
@@ -258,36 +266,54 @@ router.post('/:eventId/courses', authMiddleware, authorizeRoles('admin'), async 
         const offering = { course: courseId, slots };
         event.courses.push(offering);
         await event.save();
-        res.status(201).json({success:true, message:'Course offering added.', data:offering});
+        
+        // Populate the new offering before sending it back to the client
+        const populatedEvent = await Event.findById(eventId).populate('courses.course');
+        const createdOffering = populatedEvent.courses.find(c => c.course._id.toString() === courseId);
+
+        res.status(201).json({success:true, message:'Course offering added.', data:createdOffering});
     } catch(err){next(err);}
 });
 
-router.put('/:eventId/offerings/:offeringId', authMiddleware, authorizeRoles('admin'), async (req, res, next) => {
+// PUT /api/events/:eventId/courses/:offeringId - Update an existing course offering
+router.put('/:eventId/courses/:offeringId', authMiddleware, authorizeRoles('admin'), async (req, res, next) => {
     try {
         const { eventId, offeringId } = req.params;
         const { slots } = req.body;
-        if (!slots || !Array.isArray(slots) || slots.length === 0) return sendErrorResponse(res, 400, 'At least one slot is required.');
+        if (!slots || !Array.isArray(slots)) return sendErrorResponse(res, 400, 'Slots data is missing or invalid.');
+        
         const event = await Event.findById(eventId);
         if (!event) return sendErrorResponse(res, 404, 'Event not found.');
+        
         const offering = event.courses.id(offeringId);
         if (!offering) return sendErrorResponse(res, 404, 'Offering not found.');
-        offering.slots = slots.map((s, i) => ({ ...s, _id: s._id || new mongoose.Types.ObjectId(), id: s.id || i + 1, enrolled:[] }));
+        
+        // Overwrite the slots array
+        offering.slots = slots;
         await event.save();
+        
         res.json({ success: true, message: 'Course offering updated successfully.', data: offering });
     } catch(err) { next(err); }
 });
 
-router.delete('/:eventId/offerings/:offeringId', authMiddleware, authorizeRoles('admin'), async (req, res, next) => {
+// DELETE /api/events/:eventId/courses/:offeringId - Delete a course offering
+router.delete('/:eventId/courses/:offeringId', authMiddleware, authorizeRoles('admin'), async (req, res, next) => {
     try {
         const { eventId, offeringId } = req.params;
         const event = await Event.findById(eventId);
         if (!event) return sendErrorResponse(res, 404, 'Event not found.');
-        const offering = (event.courses||[]).id(offeringId);
+        
+        const offering = event.courses.id(offeringId);
         if(!offering) return sendErrorResponse(res, 404, 'Offering not found.');
+        
+        // Un-enroll any users from this specific course in this specific event
         await User.updateMany({}, {$pull:{enrollments:{eventId: eventId, courseId: offering.course}}});
+        
+        // Remove the offering from the event's courses array
         event.courses.pull({_id: offeringId});
         await event.save();
-        res.json({success:true, message:'Course offering removed.'});
+        
+        res.json({success:true, message:'Course offering removed successfully.'});
     } catch(err){next(err);}
 });
 
