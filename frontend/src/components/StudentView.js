@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useCallback, useMemo, useContext } from 'react';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
-import { CheckCircle, XCircle, RefreshCw, Lock, Eye } from 'react-feather';
+import { CheckCircle, XCircle, RefreshCw, Lock, Eye,FileText } from 'react-feather';
 
-// ----- Reusable Modal Component (Unchanged) -----
+const OVERALL_SYLLABUS_LINK = "https://drive.google.com/file/d/1eNLapYj2Jqvij7txDDC7jvBU3Lcp2NTk/view?usp=drive_link";
 const ConfirmationModal = ({ isOpen, onClose, onConfirm, title, children, confirmText = 'Confirm', closeText = 'Cancel', isInfoOnly = false }) => {
   if (!isOpen) return null;
   return (
@@ -226,16 +226,27 @@ function StudentView() {
       <div className="flex justify-between items-center mb-6">
         <h2 className="text-2xl sm:text-3xl font-bold text-indigo-700">
           Event Enrollment
-          {user?.name && <span className="block sm:inline text-xl font-medium text-gray-600 ml-0 sm:ml-2">Welcome, {user.name}</span>}
         </h2>
-        <button
-          onClick={() => fetchData(true)}
-          className="flex items-center px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 focus:ring-2 focus:ring-indigo-500"
-          aria-label="Refresh data"
-        >
-          <RefreshCw className="w-5 h-5 mr-2" />
-          Refresh
-        </button>
+        <div className="flex items-center space-x-4">
+            <a 
+              href={OVERALL_SYLLABUS_LINK} 
+              target="_blank" 
+              rel="noopener noreferrer"
+              className="flex items-center px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition"
+              aria-label="View Overall Syllabus"
+            >
+              <FileText className="w-5 h-5 mr-2" />
+              View Open Elective Syllabus
+            </a>
+            <button
+              onClick={() => fetchData(true)}
+              className="flex items-center px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
+              aria-label="Refresh data"
+            >
+              <RefreshCw className="w-5 h-5 mr-2" />
+              Refresh
+            </button>
+        </div>
       </div>
 
       {uiMessage.text && (
