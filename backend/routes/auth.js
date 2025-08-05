@@ -9,7 +9,7 @@ if (!JWT_SECRET) {
   console.error("FATAL ERROR: JWT_SECRET is not defined. Set it in your .env file.");
   process.exit(1);
 }
-const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '1h';
+const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '4h';
 
 const sendErrorResponse = (res, statusCode, message) => {
   res.status(statusCode).json({ success: false, error: message });

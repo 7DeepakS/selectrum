@@ -9,3 +9,6 @@ ssmith,Introduction to Programming
 mjohnson,Advanced Calculus
 bwhite,Advanced Calculus
 jdoe,Advanced Calculus
+
+
+exclusiveGroup :  Networking

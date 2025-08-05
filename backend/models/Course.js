@@ -1,4 +1,3 @@
-// backend/models/Course.js
 const mongoose = require('mongoose');
 
 const courseSchema = new mongoose.Schema({
@@ -18,7 +17,15 @@ const courseSchema = new mongoose.Schema({
     prerequisites: [{
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Course' 
-    }]
+    }],
+
+    // --- NEW FIELD ADDED HERE ---
+    exclusiveGroup: {
+        type: String,
+        trim: true,
+        // This is not required. If a course is not part of an exclusive group, this field will be empty.
+    },
+
 }, {
     timestamps: true
 });
