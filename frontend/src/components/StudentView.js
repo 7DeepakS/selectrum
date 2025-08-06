@@ -64,7 +64,6 @@ function StudentView() {
         api.get('/events'),
         api.get('/users/my-enrollments'),
       ]);
-
       if (eventsResponse.data.success) {
         setEvents(eventsResponse.data.data || []);
       } else {
@@ -127,14 +126,6 @@ function StudentView() {
       setEnrollmentLoading(null);
     }
   };
-
-  const closeModal = () => {
-    setModalState({ isOpen: false });
-  };
-
-  const toggleEvent = eventId => {
-    setExpandedEventId(prev => (prev === eventId ? null : eventId));
-  };
   
   const allCoursesMap = useMemo(() => {
     const map = new Map();
@@ -155,13 +146,11 @@ function StudentView() {
         const enrolledCourse = allCoursesMap.get(enrollment.courseId.toString());
         return enrolledCourse?.exclusiveGroup === exclusiveGroup;
       });
-
       if (alreadyEnrolledInGroup) {
         setFeedbackMessage('error', `You have already enrolled in a course from the "${exclusiveGroup}" group.`);
         return;
       }
     }
-
     const courseTitle = offering.masterCourse?.title;
     if (!slot?.id || !event?._id || !offering?._id || !courseTitle) {
       setFeedbackMessage('error', 'Invalid slot, course, or event data.');
@@ -182,11 +171,17 @@ function StudentView() {
     });
   };
 
+  const closeModal = () => {
+    setModalState({ isOpen: false });
+  };
+
+  const toggleEvent = eventId => {
+    setExpandedEventId(prev => (prev === eventId ? null : eventId));
+  };
+  
   const processedEvents = useMemo(() => {
     if (!Array.isArray(events) || events.length === 0) return [];
-
     const allTakenCourseIds = new Set((userEnrollments || []).map(e => String(e.courseId)));
-    
     const takenExclusiveGroups = new Set();
     userEnrollments.forEach(enrollment => {
         const course = allCoursesMap.get(enrollment.courseId.toString());
@@ -194,7 +189,6 @@ function StudentView() {
             takenExclusiveGroups.add(course.exclusiveGroup);
         }
     });
-
     return events
       .filter(event => event.isOpen)
       .map(event => {
@@ -216,7 +210,8 @@ function StudentView() {
             return { ...offering, isEnrolledInThisOffering, hasTakenThisCourseBefore, prereqsMet, unmetPrerequisites, allRestrictionsMet, isExclusiveGroupTaken, slots: (offering.slots || []).map(slot => ({ ...slot, availableCapacity: slot.maxCapacity - (slot.enrolled || []).length })), };
           })
           .filter(Boolean)
-          .filter(offering => offering.isEnrolledInThisOffering || !offering.hasTakenThisCourseBefore);
+          .filter(offering => offering.isEnrolledInThisOffering || !offering.hasTakenThisCourseBefore)
+          .filter(offering => offering.isEnrolledInThisOffering || !offering.isExclusiveGroupTaken);
         return { ...event, courses: processedCourses, hasReachedEventLimit: enrollmentsInThisEvent.length >= (event.maxCoursesPerStudent || Infinity), enrolledCourseTitles: enrollmentsInThisEvent.map(e => e.courseTitle).filter(Boolean) };
       });
   }, [events, userEnrollments, user, allCoursesMap]);
@@ -246,10 +241,8 @@ function StudentView() {
             </button>
         </div>
       </div>
-
-      {uiMessage.text && ( <div className="max-w-4xl mx-auto mb-6"> <div className={`flex items-center p-4 rounded-lg border shadow-sm ${ uiMessage.type === 'error' ? 'bg-red-100 border-red-400 text-red-700' : 'bg-green-100 border-green-400 text-green-700' }`} role="alert"> {uiMessage.type === 'error' ? <XCircle className="w-5 h-5 mr-2" /> : <CheckCircle className="w-5 h-5 mr-2" />} <span>{uiMessage.text}</span> <button onClick={() => setUiMessage({ type: '', text: '' })} className="ml-auto text-sm font-semibold hover:underline" aria-label="Dismiss message">Dismiss</button> </div> </div> )}
+      {uiMessage.text && ( <div className="max-w-4xl mx-auto mb-6"> <div className={`flex items-center p-4 rounded-lg border shadow-sm ${ uiMessage.type === 'error' ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700' }`} role="alert"> {uiMessage.type === 'error' ? <XCircle className="w-5 h-5 mr-2" /> : <CheckCircle className="w-5 h-5 mr-2" />} <span>{uiMessage.text}</span> <button onClick={() => setUiMessage({ type: '', text: '' })} className="ml-auto text-sm font-semibold hover:underline" aria-label="Dismiss message">Dismiss</button> </div> </div> )}
       {processedEvents.length === 0 && !loading && ( <div className="text-center p-10 bg-white rounded-xl shadow-lg"> <p className="text-gray-600 text-xl">No open events are available for enrollment.</p> <p className="text-gray-500 mt-2">Please check back later or contact support.</p> </div> )}
-
       {processedEvents.length > 0 && (
         <div className="space-y-6">
           {processedEvents.map(event => (
@@ -280,6 +273,7 @@ function StudentView() {
                         } else if (event.isViewOnly) {
                             buttonState = { text: 'View Only', disabled: true, className: 'bg-gray-400 cursor-not-allowed' };
                         } else if (offering.isExclusiveGroupTaken) {
+                            // This state is now filtered out before rendering, so this button will never be seen, but the logic is kept as a safeguard.
                             buttonState = { text: 'Similar Course Taken', disabled: true, className: 'bg-gray-400 cursor-not-allowed' };
                         } else if (!offering.allRestrictionsMet) {
                             buttonState = { text: 'Restricted', disabled: true, className: 'bg-gray-400 cursor-not-allowed' };
@@ -299,12 +293,6 @@ function StudentView() {
                             <div>
                               <h5 className="font-semibold text-lg text-indigo-700">{offering.masterCourse?.title || 'Unnamed Course'}</h5>
                               {offering.masterCourse?.description && <p className="text-sm text-gray-600 mb-2">{offering.masterCourse.description}</p>}
-                              {offering.isExclusiveGroupTaken && !offering.isEnrolledInThisOffering && (
-                                <div className="text-sm text-purple-600 font-semibold my-2 p-2 bg-purple-50 border border-purple-200 rounded">
-                                    <AlertTriangle className="w-4 h-4 inline-block mr-1" />
-                                    Unavailable: You have already selected a course from the "{offering.masterCourse.exclusiveGroup}" group.
-                                </div>
-                              )}
                               {!offering.prereqsMet && !event.isViewOnly && (<div className="text-sm text-red-600 font-semibold my-2 p-2 bg-red-50 border border-red-200 rounded"><Lock className="w-4 h-4 inline-block mr-1" />Requires: {offering.unmetPrerequisites.join(', ')}</div>)}
                               {!offering.allRestrictionsMet && !event.isViewOnly && (<div className="text-sm text-orange-600 font-semibold my-2 p-2 bg-orange-50 border border-orange-200 rounded"><Lock className="w-4 h-4 inline-block mr-1" />Enrollment is restricted for your group.</div>)}
                               <p className="text-sm text-gray-600">🕒 {new Date(slot.time).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}</p>
