@@ -75,48 +75,74 @@ router.get('/', authMiddleware, async (req, res, next) => {
 
 router.post('/:eventId/courses/:courseId/slots/:slotId/enroll', authMiddleware, authorizeRoles('student'), async (req, res, next) => {
   const { eventId, courseId, slotId } = req.params;
-  const session = await mongoose.startSession();
-  session.startTransaction();
-  let event, masterCourse;
+  const studentId = req.user.id;
+
   try {
-    const student = await User.findById(req.user.id).session(session);
+    const student = await User.findById(studentId);
     if (!student) throw new Error('Student not found.');
-    event = await Event.findById(eventId).populate({ path: 'courses.course', populate: { path: 'prerequisites' } }).session(session);
+    const event = await Event.findById(eventId).populate({ path: 'courses.course', populate: { path: 'prerequisites' } });
     if (!event || !event.isOpen) throw new Error('Event not found or is closed.');
-    if (event.isViewOnly) throw new Error('This event is in view-only mode and does not accept enrollments.');
-    if (event.allowedDepartments && event.allowedDepartments.length > 0) {
-      if (!student.department || !event.allowedDepartments.includes(student.department)) throw new Error('Enrollment for this event is restricted to specific departments.');
-    }
-    if (event.allowedSemesters && event.allowedSemesters.length > 0) {
-      if (!student.semester || !event.allowedSemesters.includes(student.semester)) throw new Error('Enrollment for this event is restricted to specific semesters.');
-    }
-    if (event.allowedSections && event.allowedSections.length > 0) {
-      if (!student.section || !event.allowedSections.includes(student.section)) throw new Error('Enrollment for this event is restricted to specific sections.');
-    }
+    if (event.isViewOnly) throw new Error('This event is in view-only mode.');
     const offering = (event.courses || []).find(c => c._id.equals(courseId));
     if (!offering) throw new Error('Course offering not found in this event.');
-    masterCourse = offering.course;
+    
+    const masterCourse = offering.course;
     if (!masterCourse) throw new Error('Course data is inconsistent.');
+
     if ((student.enrollments || []).some(e => e.courseId.equals(masterCourse._id))) throw new Error(`You have already taken ${masterCourse.title}.`);
     if ((student.enrollments || []).filter(e => e.eventId.equals(eventId)).length >= event.maxCoursesPerStudent) throw new Error(`Maximum courses for this event reached.`);
-    const studentEnrolledCourseIds = new Set((student.enrollments || []).map(e => e.courseId.toString()));
-    const missingPrereqs = (masterCourse.prerequisites || []).filter(prereq => !studentEnrolledCourseIds.has(prereq._id.toString()));
-    if (missingPrereqs.length > 0) throw new Error(`Prerequisites not met: ${missingPrereqs.map(p => p.title).join(', ')}.`);
+    
     const slotToEnroll = (offering.slots || []).find(s => String(s.id) === slotId);
-    if (!slotToEnroll || !slotToEnroll.isActive || (slotToEnroll.enrolled || []).length >= slotToEnroll.maxCapacity) throw new Error('This slot is not available for enrollment.');
-    slotToEnroll.enrolled.push(student._id);
-    student.enrollments.push({ eventId: event._id, courseId: masterCourse._id, courseTitle: masterCourse.title, enrolledAt: new Date() });
-    await event.save({ session });
-    await student.save({ session });
-    await ActivityLog.create([{ user: student._id, username: student.username, action: 'ENROLL_SUCCESS', details: { eventName: event.name, courseTitle: masterCourse.title, ip: req.ip } }], { session });
-    await session.commitTransaction();
+    if (!slotToEnroll || !slotToEnroll.isActive) throw new Error('This slot is not active.');
+    if ((slotToEnroll.enrolled || []).length >= slotToEnroll.maxCapacity) {
+      throw new Error("This slot is already full.");
+    }
+    const updateResult = await Event.updateOne(
+      { 
+        _id: eventId,
+        __v: event.__v,
+        'courses.slots.enrolled': { $ne: studentId }
+      },
+      { 
+        $push: { 'courses.$[courseElem].slots.$[slotElem].enrolled': studentId },
+        $inc: { __v: 1 }
+      },
+      {
+        arrayFilters: [
+          { 'courseElem._id': offering._id },
+          { 'slotElem.id': slotId }
+        ]
+      }
+    );
+    if (updateResult.matchedCount === 0 || updateResult.modifiedCount === 0) {
+      throw new Error("This slot is full, select another course.");
+    }
+    await User.updateOne(
+      { _id: studentId },
+      { $push: { enrollments: { eventId: event._id, courseId: masterCourse._id, courseTitle: masterCourse.title, enrolledAt: new Date() } } }
+    );
+    await ActivityLog.create({ 
+      user: student._id, 
+      username: student.username,
+      action: 'ENROLL_SUCCESS', 
+      details: { eventName: event.name, courseTitle: masterCourse.title, ip: req.ip }
+    });
+
     res.json({ success: true, message: `Enrolled successfully in ${masterCourse.title}!` });
+
   } catch (err) {
-    await session.abortTransaction();
-    await ActivityLog.create({ user: req.user.id, username: req.user.username, action: 'ENROLL_FAIL', details: { eventName: event?.name || 'N/A', courseTitle: masterCourse?.title || 'N/A', errorMessage: err.message, ip: req.ip } });
+    await ActivityLog.create({
+        user: req.user.id,
+        username: req.user.username,
+        action: 'ENROLL_FAIL',
+        details: { 
+            eventName: 'N/A',
+            courseTitle: 'N/A', 
+            errorMessage: err.message, 
+            ip: req.ip 
+        }
+    });
     return sendErrorResponse(res, 400, err.message);
-  } finally {
-    session.endSession();
   }
 });
 

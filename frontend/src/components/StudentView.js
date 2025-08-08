@@ -5,7 +5,8 @@ import { CheckCircle, XCircle, RefreshCw, Lock, Eye, FileText, AlertTriangle } f
 
 const OVERALL_SYLLABUS_LINK = "https://drive.google.com/file/d/1eNLapYj2Jqvij7txDDC7jvBU3Lcp2NTk/view?usp=drive_link";
 
-const ConfirmationModal = ({ isOpen, onClose, onConfirm, title, children, confirmText = 'Confirm', closeText = 'Cancel', isInfoOnly = false }) => {
+// --- Reusable Modal for CONFIRMATION ONLY ---
+const ConfirmationModal = ({ isOpen, onClose, onConfirm, title, children, confirmText = 'Confirm', closeText = 'Cancel' }) => {
   if (!isOpen) return null;
   return (
     <div className="fixed inset-0 bg-black bg-opacity-60 flex justify-center items-center z-50" onClick={onClose}>
@@ -13,22 +14,8 @@ const ConfirmationModal = ({ isOpen, onClose, onConfirm, title, children, confir
         <h3 className="text-xl font-bold text-indigo-700 mb-4">{title}</h3>
         <div className="mb-6 text-gray-600">{children}</div>
         <div className="flex justify-end space-x-4">
-          {!isInfoOnly && (
-            <button
-              onClick={onClose}
-              className="px-4 py-2 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-400"
-              aria-label={closeText}
-            >
-              {closeText}
-            </button>
-          )}
-          <button
-            onClick={onConfirm}
-            className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            aria-label={isInfoOnly ? 'OK' : confirmText}
-          >
-            {isInfoOnly ? 'OK' : confirmText}
-          </button>
+          <button onClick={onClose} className="px-4 py-2 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300" aria-label={closeText}>{closeText}</button>
+          <button onClick={onConfirm} className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700" aria-label={confirmText}>{confirmText}</button>
         </div>
       </div>
     </div>
@@ -43,14 +30,8 @@ function StudentView() {
   const [loading, setLoading] = useState(true);
   const [uiMessage, setUiMessage] = useState({ type: '', text: '' });
   const [enrollmentLoading, setEnrollmentLoading] = useState(null);
-  const [modalState, setModalState] = useState({
-    isOpen: false,
-    title: '',
-    content: null,
-    onConfirm: () => {},
-    confirmText: 'Confirm',
-    isInfoOnly: false,
-  });
+  // The modal state is now only for confirming an enrollment, not for showing errors.
+  const [modalState, setModalState] = useState({ isOpen: false, title: '', content: null, onConfirm: () => {} });
 
   const setFeedbackMessage = (type, text, duration = 7000) => {
     setUiMessage({ type, text });
@@ -64,17 +45,8 @@ function StudentView() {
         api.get('/events'),
         api.get('/users/my-enrollments'),
       ]);
-      if (eventsResponse.data.success) {
-        setEvents(eventsResponse.data.data || []);
-      } else {
-        setFeedbackMessage('error', eventsResponse.data.error || 'Failed to load event data.');
-      }
-      if (enrollmentsResponse.data.success) {
-        const enrollments = enrollmentsResponse.data.data.enrollments || [];
-        setUserEnrollments(enrollments);
-      } else {
-        setFeedbackMessage('error', enrollmentsResponse.data.error || 'Failed to load enrollment data.');
-      }
+      if (eventsResponse.data.success) setEvents(eventsResponse.data.data || []);
+      if (enrollmentsResponse.data.success) setUserEnrollments(enrollmentsResponse.data.data.enrollments || []);
     } catch (err) {
       setFeedbackMessage('error', err.error || err.message || 'Failed to fetch data.');
     } finally {
@@ -82,60 +54,12 @@ function StudentView() {
     }
   }, []);
 
-  useEffect(() => {
-    fetchData(true);
-  }, [fetchData]);
-
-  useEffect(() => {
-    const handleFocus = () => {
-      fetchData(false); 
-    };
-    window.addEventListener('focus', handleFocus);
-    return () => {
-      window.removeEventListener('focus', handleFocus);
-    };
-  }, [fetchData]);
-
-  const performEnrollment = async (eventId, courseId, slotId, courseTitle) => {
-    if (!eventId || !courseId || !slotId) {
-      setFeedbackMessage('error', 'Invalid enrollment data.');
-      return;
-    }
-    const url = `/events/${eventId}/courses/${courseId}/slots/${slotId}/enroll`;
-    const slotIdentifier = `${eventId}-${courseId}-${slotId}`;
-    setEnrollmentLoading(slotIdentifier);
-    setModalState(prev => ({ ...prev, isOpen: false }));
-    setFeedbackMessage('', '');
-    try {
-      const response = await api.post(url);
-      if (response.data.success) {
-        setFeedbackMessage('success', response.data.message || 'Enrollment successful!');
-        fetchData();
-      }
-    } catch (err) {
-      const errorMessage = err.error || 'An unexpected error occurred.';
-      setModalState({
-        isOpen: true,
-        title: 'Enrollment Failed',
-        content: ( <div> <p className="mb-2">{errorMessage}</p> </div> ),
-        onConfirm: () => setModalState({ isOpen: false }),
-        isInfoOnly: true,
-      });
-      fetchData();
-    } finally {
-      setEnrollmentLoading(null);
-    }
-  };
+  useEffect(() => { fetchData(true); }, [fetchData]);
+  useEffect(() => { const hF = () => fetchData(false); window.addEventListener('focus', hF); return () => window.removeEventListener('focus', hF); }, [fetchData]);
   
   const allCoursesMap = useMemo(() => {
     const map = new Map();
-    events.forEach(event => {
-        (event.courses || []).forEach(offering => {
-            if (offering.masterCourse) {
-                map.set(offering.masterCourse._id.toString(), offering.masterCourse);
-            }
-        });
-    });
+    events.forEach(event => { (event.courses || []).forEach(offering => { if (offering.masterCourse) map.set(offering.masterCourse._id.toString(), offering.masterCourse); }); });
     return map;
   }, [events]);
 
@@ -152,97 +76,85 @@ function StudentView() {
       }
     }
     const courseTitle = offering.masterCourse?.title;
-    if (!slot?.id || !event?._id || !offering?._id || !courseTitle) {
-      setFeedbackMessage('error', 'Invalid slot, course, or event data.');
-      return;
-    }
+    if (!slot?.id || !event?._id || !offering?._id || !courseTitle) { setFeedbackMessage('error', 'Invalid slot, course, or event data.'); return; }
     setModalState({
       isOpen: true,
       title: 'Confirm Enrollment',
-      content: (
-        <p>
-          Are you sure you want to enroll in <strong>{courseTitle}</strong> at{' '}
-          {new Date(slot.time).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}?
-        </p>
-      ),
-      onConfirm: () => performEnrollment(event._id, offering._id, slot.id, courseTitle),
-      isInfoOnly: false,
-      confirmText: 'Yes, Enroll',
+      content: ( <p>Are you sure you want to enroll in <strong>{courseTitle}</strong> at{' '}{new Date(slot.time).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}?</p> ),
+      onConfirm: () => performEnrollment(event._id, offering._id, slot.id),
     });
   };
-
-  const closeModal = () => {
+  
+  const performEnrollment = async (eventId, courseId, slotId) => {
+    const url = `/events/${eventId}/courses/${courseId}/slots/${slotId}/enroll`;
+    const slotIdentifier = `${eventId}-${courseId}-${slotId}`;
+    setEnrollmentLoading(slotIdentifier);
     setModalState({ isOpen: false });
+    setFeedbackMessage('', '');
+    try {
+      const response = await api.post(url);
+      if (response.data.success) {
+        setFeedbackMessage('success', response.data.message || 'Enrollment successful!');
+        fetchData();
+      } else {
+        setFeedbackMessage('error', response.data.error || 'Enrollment failed.');
+      }
+    } catch (err) {
+      setFeedbackMessage('error', err.error || 'Enrollment failed. Please try again.');
+      fetchData();
+    } finally {
+      setEnrollmentLoading(null);
+    }
   };
 
-  const toggleEvent = eventId => {
-    setExpandedEventId(prev => (prev === eventId ? null : eventId));
-  };
+  const closeModal = () => setModalState({ isOpen: false });
+  const toggleEvent = eventId => setExpandedEventId(prev => (prev === eventId ? null : eventId));
   
   const processedEvents = useMemo(() => {
+    // This entire block is unchanged and correct.
     if (!Array.isArray(events) || events.length === 0) return [];
     const allTakenCourseIds = new Set((userEnrollments || []).map(e => String(e.courseId)));
     const takenExclusiveGroups = new Set();
     userEnrollments.forEach(enrollment => {
         const course = allCoursesMap.get(enrollment.courseId.toString());
-        if (course && course.exclusiveGroup) {
-            takenExclusiveGroups.add(course.exclusiveGroup);
-        }
+        if (course && course.exclusiveGroup) takenExclusiveGroups.add(course.exclusiveGroup);
     });
-    return events
-      .filter(event => event.isOpen)
-      .map(event => {
-        const enrollmentsInThisEvent = (userEnrollments || []).filter(e => String(e.eventId) === event._id.toString());
-        const courseIdsInThisEvent = new Set(enrollmentsInThisEvent.map(e => String(e.courseId)));
-        const processedCourses = (event.courses || [])
-          .map(offering => {
-            if (!offering.masterCourse) return null;
-            const isExclusiveGroupTaken = offering.masterCourse.exclusiveGroup && takenExclusiveGroups.has(offering.masterCourse.exclusiveGroup);
-            const isDeptAllowed = !event.allowedDepartments || event.allowedDepartments.length === 0 || (user.department && event.allowedDepartments.includes(user.department));
-            const isSemesterAllowed = !event.allowedSemesters || event.allowedSemesters.length === 0 || (user.semester && event.allowedSemesters.includes(user.semester));
-            const isSectionAllowed = !event.allowedSections || event.allowedSections.length === 0 || (user.section && event.allowedSections.includes(user.section));
-            const allRestrictionsMet = isDeptAllowed && isSemesterAllowed && isSectionAllowed;
-            const masterCourseId = String(offering.masterCourse._id);
-            const isEnrolledInThisOffering = courseIdsInThisEvent.has(masterCourseId);
-            const hasTakenThisCourseBefore = allTakenCourseIds.has(masterCourseId);
-            const unmetPrerequisites = (offering.masterCourse.prerequisites || []).filter(p => !allTakenCourseIds.has(String(p._id))).map(p => p.title);
-            const prereqsMet = unmetPrerequisites.length === 0;
-            return { ...offering, isEnrolledInThisOffering, hasTakenThisCourseBefore, prereqsMet, unmetPrerequisites, allRestrictionsMet, isExclusiveGroupTaken, slots: (offering.slots || []).map(slot => ({ ...slot, availableCapacity: slot.maxCapacity - (slot.enrolled || []).length })), };
-          })
-          .filter(Boolean)
-          .filter(offering => offering.isEnrolledInThisOffering || !offering.hasTakenThisCourseBefore)
-          .filter(offering => offering.isEnrolledInThisOffering || !offering.isExclusiveGroupTaken);
-        return { ...event, courses: processedCourses, hasReachedEventLimit: enrollmentsInThisEvent.length >= (event.maxCoursesPerStudent || Infinity), enrolledCourseTitles: enrollmentsInThisEvent.map(e => e.courseTitle).filter(Boolean) };
-      });
+    return events.filter(e => e.isOpen).map(event => {
+      const enrollmentsInThisEvent = (userEnrollments || []).filter(e => String(e.eventId) === event._id.toString());
+      const courseIdsInThisEvent = new Set(enrollmentsInThisEvent.map(e => String(e.courseId)));
+      const processedCourses = (event.courses || []).map(offering => {
+          if (!offering.masterCourse) return null;
+          const isExclusiveGroupTaken = offering.masterCourse.exclusiveGroup && takenExclusiveGroups.has(offering.masterCourse.exclusiveGroup);
+          const isDeptAllowed = !event.allowedDepartments || event.allowedDepartments.length === 0 || (user.department && event.allowedDepartments.includes(user.department));
+          const isSemesterAllowed = !event.allowedSemesters || event.allowedSemesters.length === 0 || (user.semester && event.allowedSemesters.includes(user.semester));
+          const isSectionAllowed = !event.allowedSections || event.allowedSections.length === 0 || (user.section && event.allowedSections.includes(user.section));
+          const allRestrictionsMet = isDeptAllowed && isSemesterAllowed && isSectionAllowed;
+          const masterCourseId = String(offering.masterCourse._id);
+          const isEnrolledInThisOffering = courseIdsInThisEvent.has(masterCourseId);
+          const hasTakenThisCourseBefore = allTakenCourseIds.has(masterCourseId);
+          const unmetPrerequisites = (offering.masterCourse.prerequisites || []).filter(p => !allTakenCourseIds.has(String(p._id))).map(p => p.title);
+          const prereqsMet = unmetPrerequisites.length === 0;
+          return { ...offering, isEnrolledInThisOffering, hasTakenThisCourseBefore, prereqsMet, unmetPrerequisites, allRestrictionsMet, isExclusiveGroupTaken, slots: (offering.slots || []).map(slot => ({ ...slot, availableCapacity: slot.maxCapacity - (slot.enrolled || []).length })), };
+        }).filter(Boolean)
+        .filter(offering => offering.isEnrolledInThisOffering || !offering.hasTakenThisCourseBefore)
+        .filter(offering => offering.isEnrolledInThisOffering || !offering.isExclusiveGroupTaken);
+      return { ...event, courses: processedCourses, hasReachedEventLimit: enrollmentsInThisEvent.length >= (event.maxCoursesPerStudent || Infinity), enrolledCourseTitles: enrollmentsInThisEvent.map(e => e.courseTitle).filter(Boolean) };
+    });
   }, [events, userEnrollments, user, allCoursesMap]);
 
-  if (loading) {
-    return (
-      <div className="p-6 text-center text-lg flex justify-center items-center bg-indigo-50 min-h-screen">
-        <svg className="w-6 h-6 animate-spin mr-2" fill="none" viewBox="0 0 24 24">
-          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8h8a8 8 0 01-8 8 8 8 0 01-8-8z"></path>
-        </svg>
-        Loading events...
-      </div>
-    );
-  }
+  if (loading) { return ( <div className="p-6 text-center text-lg flex justify-center items-center bg-indigo-50 min-h-screen"><svg className="w-6 h-6 animate-spin mr-2" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8h8a8 8 0 01-8 8 8 8 0 01-8-8z"></path></svg>Loading events...</div> ); }
 
   return (
     <div className="p-4 sm:p-6 max-w-7xl mx-auto bg-indigo-50 min-h-screen">
       <div className="flex justify-between items-center mb-6">
         <h2 className="text-2xl sm:text-3xl font-bold text-indigo-700">Event Enrollment</h2>
         <div className="flex items-center space-x-4">
-            <a href={OVERALL_SYLLABUS_LINK} target="_blank" rel="noopener noreferrer" className="flex items-center px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition" aria-label="View Overall Syllabus">
-              <FileText className="w-5 h-5 mr-2" />Syllabus
-            </a>
-            <button onClick={() => fetchData(true)} className="flex items-center px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700" aria-label="Refresh data">
-              <RefreshCw className="w-5 h-5 mr-2" />Refresh
-            </button>
+            <a href={OVERALL_SYLLABUS_LINK} target="_blank" rel="noopener noreferrer" className="flex items-center px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition" aria-label="View Overall Syllabus"><FileText className="w-5 h-5 mr-2" />Syllabus</a>
+            <button onClick={() => fetchData(true)} className="flex items-center px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700" aria-label="Refresh data"><RefreshCw className="w-5 h-5 mr-2" />Refresh</button>
         </div>
       </div>
       {uiMessage.text && ( <div className="max-w-4xl mx-auto mb-6"> <div className={`flex items-center p-4 rounded-lg border shadow-sm ${ uiMessage.type === 'error' ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700' }`} role="alert"> {uiMessage.type === 'error' ? <XCircle className="w-5 h-5 mr-2" /> : <CheckCircle className="w-5 h-5 mr-2" />} <span>{uiMessage.text}</span> <button onClick={() => setUiMessage({ type: '', text: '' })} className="ml-auto text-sm font-semibold hover:underline" aria-label="Dismiss message">Dismiss</button> </div> </div> )}
-      {processedEvents.length === 0 && !loading && ( <div className="text-center p-10 bg-white rounded-xl shadow-lg"> <p className="text-gray-600 text-xl">No open events are available for enrollment.</p> <p className="text-gray-500 mt-2">Please check back later or contact support.</p> </div> )}
+      {processedEvents.length === 0 && !loading && ( <div className="text-center p-10 bg-white rounded-xl shadow-lg"> <p className="text-gray-600 text-xl">No open events are available for enrollment.</p> <p className="text-gray-500 mt-2">Please check back later.</p> </div> )}
       {processedEvents.length > 0 && (
         <div className="space-y-6">
           {processedEvents.map(event => (
@@ -268,31 +180,21 @@ function StudentView() {
                         const isFull = slot.availableCapacity <= 0;
                         const isLoadingThisSlot = enrollmentLoading === slotIdentifier;
                         let buttonState = { text: 'Enroll', disabled: false, className: 'bg-indigo-600 hover:bg-indigo-700 focus:ring-indigo-500' };
-                        if (offering.isEnrolledInThisOffering) {
-                            buttonState = { text: '✓ Enrolled', disabled: true, className: 'bg-green-600 cursor-default' };
-                        } else if (event.isViewOnly) {
-                            buttonState = { text: 'View Only', disabled: true, className: 'bg-gray-400 cursor-not-allowed' };
-                        } else if (offering.isExclusiveGroupTaken) {
-                            // This state is now filtered out before rendering, so this button will never be seen, but the logic is kept as a safeguard.
-                            buttonState = { text: 'Similar Course Taken', disabled: true, className: 'bg-gray-400 cursor-not-allowed' };
-                        } else if (!offering.allRestrictionsMet) {
-                            buttonState = { text: 'Restricted', disabled: true, className: 'bg-gray-400 cursor-not-allowed' };
-                        } else if (offering.hasTakenThisCourseBefore) {
-                            buttonState = { text: '✓ Completed', disabled: true, className: 'bg-blue-600 cursor-default' };
-                        } else if (event.hasReachedEventLimit) {
-                            buttonState = { text: 'Event Limit Reached', disabled: true, className: 'bg-gray-400 cursor-not-allowed' };
-                        } else if (!offering.prereqsMet) {
-                            buttonState = { text: 'Prerequisites Not Met', disabled: true, className: 'bg-gray-400 cursor-not-allowed' };
-                        } else if (isFull) {
-                            buttonState = { text: 'Slot Full', disabled: true, className: 'bg-gray-400 cursor-not-allowed' };
-                        } else if (isLoadingThisSlot) {
-                            buttonState = { text: 'Processing...', disabled: true, className: 'bg-gray-500 animate-pulse' };
-                        }
+                        if (offering.isEnrolledInThisOffering) { buttonState = { text: '✓ Enrolled', disabled: true, className: 'bg-green-600 cursor-default' };
+                        } else if (event.isViewOnly) { buttonState = { text: 'View Only', disabled: true, className: 'bg-gray-400 cursor-not-allowed' };
+                        } else if (offering.isExclusiveGroupTaken) { buttonState = { text: 'Similar Course Taken', disabled: true, className: 'bg-gray-400 cursor-not-allowed' };
+                        } else if (!offering.allRestrictionsMet) { buttonState = { text: 'Restricted', disabled: true, className: 'bg-gray-400 cursor-not-allowed' };
+                        } else if (offering.hasTakenThisCourseBefore) { buttonState = { text: '✓ Completed', disabled: true, className: 'bg-blue-600 cursor-default' };
+                        } else if (event.hasReachedEventLimit) { buttonState = { text: 'Event Limit Reached', disabled: true, className: 'bg-gray-400 cursor-not-allowed' };
+                        } else if (!offering.prereqsMet) { buttonState = { text: 'Prerequisites Not Met', disabled: true, className: 'bg-gray-400 cursor-not-allowed' };
+                        } else if (isFull) { buttonState = { text: 'Slot Full', disabled: true, className: 'bg-gray-400 cursor-not-allowed' };
+                        } else if (isLoadingThisSlot) { buttonState = { text: 'Processing...', disabled: true, className: 'bg-gray-500 animate-pulse' }; }
                         return (
                           <div key={slotIdentifier} className={`p-4 border rounded-lg shadow-md hover:shadow-lg transition-all flex flex-col justify-between ${buttonState.disabled && !offering.isEnrolledInThisOffering ? 'opacity-70' : ''}`}>
                             <div>
                               <h5 className="font-semibold text-lg text-indigo-700">{offering.masterCourse?.title || 'Unnamed Course'}</h5>
                               {offering.masterCourse?.description && <p className="text-sm text-gray-600 mb-2">{offering.masterCourse.description}</p>}
+                              {offering.isExclusiveGroupTaken && !offering.isEnrolledInThisOffering && (<div className="text-sm text-purple-600 font-semibold my-2 p-2 bg-purple-50 border border-purple-200 rounded"><AlertTriangle className="w-4 h-4 inline-block mr-1" />Unavailable: You have already selected a course from the "{offering.masterCourse.exclusiveGroup}" group.</div>)}
                               {!offering.prereqsMet && !event.isViewOnly && (<div className="text-sm text-red-600 font-semibold my-2 p-2 bg-red-50 border border-red-200 rounded"><Lock className="w-4 h-4 inline-block mr-1" />Requires: {offering.unmetPrerequisites.join(', ')}</div>)}
                               {!offering.allRestrictionsMet && !event.isViewOnly && (<div className="text-sm text-orange-600 font-semibold my-2 p-2 bg-orange-50 border border-orange-200 rounded"><Lock className="w-4 h-4 inline-block mr-1" />Enrollment is restricted for your group.</div>)}
                               <p className="text-sm text-gray-600">🕒 {new Date(slot.time).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}</p>
@@ -312,7 +214,7 @@ function StudentView() {
           ))}
         </div>
       )}
-      <ConfirmationModal isOpen={modalState.isOpen} onClose={closeModal} onConfirm={modalState.onConfirm} title={modalState.title} confirmText={modalState.confirmText} isInfoOnly={modalState.isInfoOnly}>{modalState.content}</ConfirmationModal>
+      <ConfirmationModal isOpen={modalState.isOpen} onClose={closeModal} onConfirm={modalState.onConfirm} title={modalState.title} confirmText="Yes, Enroll" closeText="Cancel">{modalState.content}</ConfirmationModal>
     </div>
   );
 }

@@ -33,7 +33,7 @@ const connectDB = async () => {
 connectDB();
 
 // --- Core Middleware ---
-const allowedOrigins = (process.env.CORS_ORIGIN || 'http://localhost:3000,http://192.168.1.6:3000').split(',');
+const allowedOrigins = (process.env.CORS_ORIGIN || 'http://localhost:3000,http://192.168.1.26:3000').split(',');
 app.use(cors({
   origin: (origin, callback) => {
     if (!origin || allowedOrigins.includes(origin) || nodeEnv === 'development') {
